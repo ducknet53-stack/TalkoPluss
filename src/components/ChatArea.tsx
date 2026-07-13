@@ -527,7 +527,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     }
   };
 
-  const renderReadReceipt = (msg: Message) => {
+  const renderReadReceipt = (msg: Message, isLastMessage: boolean) => {
     if (msg.senderId !== currentUser?.uid) return null;
     
     let isRead = false;
@@ -547,12 +547,15 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     }
 
     return (
-      <span className="inline-flex ml-1 select-none items-center animate-fade-in" title={isRead ? "Okundu" : "Gönderildi"}>
+      <span className="inline-flex ml-1 select-none items-center animate-fade-in gap-1" title={isRead ? "Okundu" : "Gönderildi"}>
         {isRead ? (
-          <svg className="w-4 h-4 text-sky-400 fill-current" viewBox="0 0 24 24">
-            <path d="M0.282,11.244 C0.669,10.825 1.302,10.799 1.721,11.185 L7.766,16.746 L21.728,3.9 C22.148,3.515 22.781,3.541 23.167,3.96 C23.553,4.38 23.527,5.012 23.107,5.398 L8.455,18.877 C8.261,19.055 8.006,19.151 7.744,19.141 C7.483,19.13 7.239,19.014 7.062,18.82 L0.34,12.683 C-0.047,12.264 -0.073,11.631 0.282,11.244 Z" />
-            <path d="M5.282,11.244 C5.669,10.825 6.302,10.799 6.721,11.185 L12.766,16.746 L18.728,11.26 C19.148,10.875 19.781,10.901 20.167,11.32 C20.553,11.74 20.527,12.372 20.107,12.758 L13.455,18.877 C13.261,19.055 13.006,19.151 12.744,19.141 C12.483,19.13 12.239,19.014 12.062,18.82 L5.34,12.683 C4.953,12.264 4.927,11.631 5.282,11.244 Z" opacity="0.6" />
-          </svg>
+          <>
+            <svg className="w-4 h-4 text-sky-400 fill-current" viewBox="0 0 24 24">
+              <path d="M0.282,11.244 C0.669,10.825 1.302,10.799 1.721,11.185 L7.766,16.746 L21.728,3.9 C22.148,3.515 22.781,3.541 23.167,3.96 C23.553,4.38 23.527,5.012 23.107,5.398 L8.455,18.877 C8.261,19.055 8.006,19.151 7.744,19.141 C7.483,19.13 7.239,19.014 7.062,18.82 L0.34,12.683 C-0.047,12.264 -0.073,11.631 0.282,11.244 Z" />
+              <path d="M5.282,11.244 C5.669,10.825 6.302,10.799 6.721,11.185 L12.766,16.746 L18.728,11.26 C19.148,10.875 19.781,10.901 20.167,11.32 C20.553,11.74 20.527,12.372 20.107,12.758 L13.455,18.877 C13.261,19.055 13.006,19.151 12.744,19.141 C12.483,19.13 12.239,19.014 12.062,18.82 L5.34,12.683 C4.953,12.264 4.927,11.631 5.282,11.244 Z" opacity="0.6" />
+            </svg>
+            {isLastMessage && <span className="text-[10px] text-sky-400 font-medium">Görüldü</span>}
+          </>
         ) : (
           otherUserOnline || chat.isGroup ? (
             <svg className="w-4 h-4 text-gray-400 dark:text-gray-500 fill-current" viewBox="0 0 24 24">
@@ -706,7 +709,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                   isMine ? "text-blue-200" : "text-gray-400 dark:text-gray-500"
                 )}>
                   {format(msg.timestamp, 'HH:mm')}
-                  {isMine && renderReadReceipt(msg)}
+                  {isMine && renderReadReceipt(msg, idx === messages.length - 1)}
                 </span>
               </div>
             </div>

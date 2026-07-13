@@ -3,7 +3,7 @@ import { collection, doc, updateDoc, getDocs, onSnapshot, query, orderBy, delete
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { User, Chat, Message } from '../types';
-import { Fingerprint, Users, MessageSquare, ArrowLeft, Ban, Search, BadgeCheck, KeyRound, Clock, Eye, Trash2, Megaphone, Bell, Camera } from 'lucide-react';
+import { Fingerprint, Users, MessageSquare, ArrowLeft, Ban, Search, BadgeCheck, KeyRound, Clock, Eye, Trash2, Megaphone, Bell, Camera, Star } from 'lucide-react';
 import { TALKO_LOGO_DATA_URL } from '../lib/assets';
 import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
@@ -165,6 +165,22 @@ export default function AdminPanel() {
       toast.success(willBan ? `${user.username} başarıyla engellendi.` : `${user.username} engeli kaldırıldı.`);
     } catch (err: any) {
       console.error("Error toggling ban status:", err);
+      toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
+    }
+  };
+
+  const handleToggleVerified = async (user: User) => {
+    const userRef = doc(db, 'users', user.uid);
+    const willVerify = !user.isVerified;
+    
+    try {
+      await updateDoc(userRef, {
+        isVerified: willVerify
+      });
+      
+      toast.success(willVerify ? `${user.username} Talko Verified yapıldı.` : `${user.username} Talko Verified alındı.`);
+    } catch (err: any) {
+      console.error("Error toggling verified status:", err);
       toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
     }
   };
@@ -408,11 +424,11 @@ export default function AdminPanel() {
         {/* Left Action and Listings Block */}
         <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl overflow-hidden lg:col-span-6 xl:col-span-5 flex flex-col h-[600px]">
           {/* Tab buttons */}
-          <div className="flex border-b border-slate-800 bg-slate-900/60">
+          <div className="flex border-b border-slate-800 bg-slate-900/60 overflow-x-auto overflow-y-hidden whitespace-nowrap scrollbar-hide">
             <button
               onClick={() => setActiveTab('users')}
               className={cn(
-                "flex-1 py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
+                "flex-1 min-w-max py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
                 activeTab === 'users' 
                   ? "border-blue-500 text-blue-400 bg-slate-950/20" 
                   : "border-transparent text-slate-400 hover:text-white"
@@ -424,7 +440,7 @@ export default function AdminPanel() {
             <button
               onClick={() => setActiveTab('chats')}
               className={cn(
-                "flex-1 py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
+                "flex-1 min-w-max py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
                 activeTab === 'chats' 
                   ? "border-blue-500 text-blue-400 bg-slate-950/20" 
                   : "border-transparent text-slate-400 hover:text-white"
@@ -436,7 +452,7 @@ export default function AdminPanel() {
             <button
               onClick={() => setActiveTab('broadcast')}
               className={cn(
-                "flex-1 py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
+                "flex-1 min-w-max py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
                 activeTab === 'broadcast' 
                   ? "border-blue-500 text-blue-400 bg-slate-950/20" 
                   : "border-transparent text-slate-400 hover:text-white"
@@ -448,14 +464,14 @@ export default function AdminPanel() {
             <button
               onClick={() => setActiveTab('verifications')}
               className={cn(
-                "flex-1 py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
+                "flex-1 min-w-max py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
                 activeTab === 'verifications' 
                   ? "border-blue-500 text-blue-400 bg-slate-950/20" 
                   : "border-transparent text-slate-400 hover:text-white"
               )}
             >
               <Camera size={16} />
-              Doğrulamalar {verifications.filter(v => v.status === 'pending').length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[20px]">{verifications.filter(v => v.status === 'pending').length}</span>}
+              Fotoğraflar {verifications.filter(v => v.status === 'pending').length > 0 && <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[20px] text-center">{verifications.filter(v => v.status === 'pending').length}</span>}
             </button>
           </div>
 
@@ -524,11 +540,24 @@ export default function AdminPanel() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={() => handleToggleVerified(user)}
+                          className={cn(
+                            "p-2 rounded-lg border transition-all text-xs font-semibold flex items-center justify-center gap-1.5",
+                            user.isVerified 
+                              ? "bg-slate-800/50 border-slate-700/50 text-slate-400 hover:bg-slate-800" 
+                              : "bg-amber-500/10 border-amber-500/30 text-amber-500 hover:bg-amber-500/20"
+                          )}
+                          title={user.isVerified ? "Talko Verified Kaldır" : "Talko Verified Ver"}
+                        >
+                          <Star size={14} className={user.isVerified ? "" : "fill-current"} />
+                          {user.isVerified ? 'Verified Kaldır' : 'Verified Ver'}
+                        </button>
                         <button
                           onClick={() => handleToggleBan(user)}
                           className={cn(
-                            "p-2 rounded-lg border transition-all text-xs font-semibold flex items-center gap-1.5",
+                            "p-2 rounded-lg border transition-all text-xs font-semibold flex items-center justify-center gap-1.5",
                             user.isBanned 
                               ? "bg-emerald-950/30 border-emerald-900/40 text-emerald-400 hover:bg-emerald-950/60" 
                               : "bg-red-950/30 border-red-900/40 text-red-400 hover:bg-red-950/60"
