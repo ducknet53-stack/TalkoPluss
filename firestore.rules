@@ -15,7 +15,7 @@ service cloud.firestore {
     // Check if user has admin privileges
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email == "ducknet53@gmail.com" || (
+        ("email" in request.auth.token && request.auth.token.email == "ducknet53@gmail.com") || (
           exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
         )
@@ -34,7 +34,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow write: if isAuthenticated() && (
-        (isOwner(userId) && isNotBanned()) || 
+        (isOwner(userId) && isNotBanned() && (
+          !('isAdmin' in request.resource.data) || 
+          request.resource.data.isAdmin == false || 
+          (resource != null && 'isAdmin' in resource.data && request.resource.data.isAdmin == resource.data.isAdmin) ||
+          isAdmin()
+        )) || 
         userId == 'system_talko_destek' || 
         isAdmin()
       );

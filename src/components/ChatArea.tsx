@@ -32,11 +32,23 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const [otherUserOnline, setOtherUserOnline] = useState(false);
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<number | null>(null);
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
-  const [liveOtherUser, setLiveOtherUser] = useState<any>(null);
+  const [liveUsers, setLiveUsers] = useState<Record<string, any>>({});
   
   // AI State
   const [aiState, setAiState] = useState({ isGenerating: false, isThinking: false, streamText: '' });
   const [groupTypersText, setGroupTypersText] = useState('');
+  const [liveChat, setLiveChat] = useState<Chat>(chat);
+  
+  useEffect(() => {
+    setLiveChat(chat);
+    if (!chat?.id || !currentUser) return;
+    const unsub = onSnapshot(doc(db, 'chats', chat.id), (docSnap) => {
+      if (docSnap.exists()) {
+        setLiveChat({ id: docSnap.id, ...docSnap.data() } as Chat);
+      }
+    });
+    return () => unsub();
+  }, [chat?.id, currentUser]);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTypingTimeRef = useRef<number>(0);
@@ -51,15 +63,15 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const otherUserId = chat?.participants?.find(id => id !== currentUser?.uid) || currentUser?.uid;
   const isSystemChat = otherUserId === SYSTEM_USER_ID;
   const isAiChat = otherUserId === TALKO_AI_USER_ID;
-  const isVerified = isSystemChat || isAiChat;
-
   const otherUserDetails = isSystemChat 
     ? { username: 'Talko Updates', photoURL: TALKO_LOGO_DATA_URL }
     : isAiChat
     ? { username: 'Talko AI', photoURL: TALKO_AI_LOGO_DATA_URL }
     : (otherUserId === currentUser?.uid 
         ? userProfile 
-        : (liveOtherUser || chat?.participantDetails?.[otherUserId || ''] || {}));
+        : (liveUsers[otherUserId || ''] || chat?.participantDetails?.[otherUserId || ''] || {}));
+
+  const isVerified = isSystemChat || isAiChat || (otherUserDetails?.isVerified || false);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -211,11 +223,47 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   }, [chat?.id, messages?.length, currentUser?.uid]);
 
   useEffect(() => {
-    let unsubscribeUser = () => {};
+    let unsubscribeUsers = () => {};
     let unsubscribeTyping = () => {};
     let unsubscribeGroupTyping = () => {};
+    
+    if (currentUser) {
+      const usersRef = collection(db, 'users');
+      unsubscribeUsers = onSnapshot(usersRef, (snapshot) => {
+        const usersMap: Record<string, any> = {};
+        snapshot.docs.forEach(doc => {
+          usersMap[doc.id] = doc.data();
+        });
+        setLiveUsers(usersMap);
+        
+        // Update online/lastSeen state for DM
+        if (!liveChat.isGroup && otherUserId) {
+          const data = usersMap[otherUserId];
+          if (data) {
+            if (data.isBanned) {
+              setOtherUserOnline(false);
+              setOtherUserLastSeen(null);
+            } else {
+              setOtherUserOnline(data.isOnline || data.online || false);
+              
+              let lastSeenMs: number | null = null;
+              if (data.lastSeen) {
+                if (typeof data.lastSeen === 'object' && 'toMillis' in data.lastSeen) {
+                  lastSeenMs = data.lastSeen.toMillis();
+                } else if (typeof data.lastSeen === 'number') {
+                  lastSeenMs = data.lastSeen;
+                } else if (data.lastSeen instanceof Date) {
+                  lastSeenMs = data.lastSeen.getTime();
+                }
+              }
+              setOtherUserLastSeen(lastSeenMs);
+            }
+          }
+        }
+      });
+    }
 
-    if (chat.isGroup) {
+    if (liveChat.isGroup) {
       // Listen to all group members' typing indicators
       const typingColRef = collection(db, `chats/${chat.id}/typing`);
       unsubscribeGroupTyping = onSnapshot(typingColRef, (snapshot) => {
@@ -224,7 +272,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           if (docSnap.id === currentUser?.uid) return;
           const data = docSnap.data();
           if (data.isTyping && Date.now() - (data.timestamp || 0) < 5000) {
-            const name = chat.participantDetails?.[docSnap.id]?.username || 'Birisi';
+            const name = liveUsers[docSnap.id]?.username || liveChat.participantDetails?.[docSnap.id]?.username || 'Birisi';
             typers.push(name);
           }
         });
@@ -237,73 +285,46 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         }
       });
     } else {
-      if (isSystemChat || !otherUserId || !currentUser) return;
-
-      // Listen to other user's online status
-      const userRef = doc(db, 'users', otherUserId);
-      unsubscribeUser = onSnapshot(userRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setLiveOtherUser(data);
-          if (data.isBanned) {
-            setOtherUserOnline(false);
-            setOtherUserLastSeen(null);
-          } else {
-            setOtherUserOnline(data.isOnline || data.online || false);
-            
-            let lastSeenMs: number | null = null;
-            if (data.lastSeen) {
-              if (typeof data.lastSeen === 'object' && 'toMillis' in data.lastSeen) {
-                lastSeenMs = data.lastSeen.toMillis();
-              } else if (typeof data.lastSeen === 'number') {
-                lastSeenMs = data.lastSeen;
-              } else if (data.lastSeen instanceof Date) {
-                lastSeenMs = data.lastSeen.getTime();
+      if (!isSystemChat && otherUserId && currentUser) {
+        // Listen to other user's typing status
+        const typingRef = doc(db, `chats/${chat.id}/typing`, otherUserId);
+        unsubscribeTyping = onSnapshot(typingRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            const isTyping = data.isTyping || false;
+            const timestamp = data.timestamp || 0;
+            lastTypingTimeRef.current = timestamp;
+  
+            if (isTyping) {
+              if (Date.now() - timestamp < 5000) {
+                setIsOtherUserTyping(true);
+              } else {
+                setIsOtherUserTyping(false);
               }
-            }
-            setOtherUserLastSeen(lastSeenMs);
-          }
-        }
-      });
-
-      // Listen to other user's typing status
-      const typingRef = doc(db, `chats/${chat.id}/typing`, otherUserId);
-      unsubscribeTyping = onSnapshot(typingRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const isTyping = data.isTyping || false;
-          const timestamp = data.timestamp || 0;
-          lastTypingTimeRef.current = timestamp;
-
-          if (isTyping) {
-            if (Date.now() - timestamp < 5000) {
-              setIsOtherUserTyping(true);
             } else {
               setIsOtherUserTyping(false);
             }
           } else {
             setIsOtherUserTyping(false);
           }
-        } else {
-          setIsOtherUserTyping(false);
-        }
-      });
+        });
+      }
     }
 
     // Periodically decay/expire typing indicator if sender's connection drops
     const interval = setInterval(() => {
-      if (!chat.isGroup && lastTypingTimeRef.current && Date.now() - lastTypingTimeRef.current >= 5000) {
+      if (!liveChat.isGroup && lastTypingTimeRef.current && Date.now() - lastTypingTimeRef.current >= 5000) {
         setIsOtherUserTyping(false);
       }
     }, 1000);
 
     return () => {
-      unsubscribeUser();
+      unsubscribeUsers();
       unsubscribeTyping();
       unsubscribeGroupTyping();
       clearInterval(interval);
     };
-  }, [otherUserId, isSystemChat, chat.id, currentUser, chat.isGroup]);
+  }, [otherUserId, isSystemChat, chat.id, currentUser, liveChat.isGroup]);
 
   // Handle visibility changes or closing tabs to immediately clear typing
   useEffect(() => {
@@ -389,7 +410,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       });
 
       const unreadUpdates: Record<string, any> = {};
-      chat.participants.forEach(p => {
+      liveChat.participants.forEach(p => {
         if (p !== currentUser.uid) {
           unreadUpdates[`unreadCount.${p}`] = increment(1);
         }
@@ -531,17 +552,17 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     if (msg.senderId !== currentUser?.uid) return null;
     
     let isRead = false;
-    if (chat.isGroup) {
-      const otherParticipants = chat.participants.filter(id => id !== currentUser?.uid);
+    if (liveChat.isGroup) {
+      const otherParticipants = liveChat.participants.filter(id => id !== currentUser?.uid);
       const readCount = otherParticipants.filter(id => {
-        const userLastRead = chat.lastRead?.[id] || 0;
+        const userLastRead = liveChat.lastRead?.[id] || 0;
         return userLastRead >= msg.timestamp;
       }).length;
       isRead = readCount > 0;
     } else {
-      const otherParticipantId = chat.participants.find(id => id !== currentUser?.uid);
+      const otherParticipantId = liveChat.participants.find(id => id !== currentUser?.uid);
       if (otherParticipantId) {
-        const otherLastRead = chat.lastRead?.[otherParticipantId] || 0;
+        const otherLastRead = liveChat.lastRead?.[otherParticipantId] || 0;
         isRead = otherLastRead >= msg.timestamp;
       }
     }
@@ -557,7 +578,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
             {isLastMessage && <span className="text-[10px] text-sky-400 font-medium">Görüldü</span>}
           </>
         ) : (
-          otherUserOnline || chat.isGroup ? (
+          otherUserOnline || liveChat.isGroup ? (
             <svg className="w-4 h-4 text-gray-400 dark:text-gray-500 fill-current" viewBox="0 0 24 24">
               <path d="M0.282,11.244 C0.669,10.825 1.302,10.799 1.721,11.185 L7.766,16.746 L21.728,3.9 C22.148,3.515 22.781,3.541 23.167,3.96 C23.553,4.38 23.527,5.012 23.107,5.398 L8.455,18.877 C8.261,19.055 8.006,19.151 7.744,19.141 C7.483,19.13 7.239,19.014 7.062,18.82 L0.34,12.683 C-0.047,12.264 -0.073,11.631 0.282,11.244 Z" />
               <path d="M5.282,11.244 C5.669,10.825 6.302,10.799 6.721,11.185 L12.766,16.746 L18.728,11.26 C19.148,10.875 19.781,10.901 20.167,11.32 C20.553,11.74 20.527,12.372 20.107,12.758 L13.455,18.877 C13.261,19.055 13.006,19.151 12.744,19.141 C12.483,19.13 12.239,19.014 12.062,18.82 L5.34,12.683 C4.953,12.264 4.927,11.631 5.282,11.244 Z" opacity="0.6" />
@@ -585,9 +606,9 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           
           <div className="relative w-10 h-10 flex-shrink-0">
             <div className="w-full h-full rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-155 dark:border-gray-700">
-              {chat.isGroup ? (
+              {liveChat.isGroup ? (
                 <div className="w-full h-full flex items-center justify-center text-2xl bg-blue-50 dark:bg-blue-950/40 font-bold select-none text-blue-600 dark:text-blue-400">
-                  {chat.groupEmoji || '👥'}
+                  {liveChat.groupEmoji || '👥'}
                 </div>
               ) : isSystemChat ? (
                 <img src={TALKO_LOGO_DATA_URL} alt="Talko Updates" className="w-full h-full object-cover" />
@@ -601,7 +622,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                 </div>
               )}
             </div>
-            {otherUserOnline && !isVerified && !chat.isGroup && (
+            {otherUserOnline && !isVerified && !liveChat.isGroup && (
               <span className="absolute bottom-0 right-0 block w-3 h-3 rounded-full bg-green-500 border-2 border-white dark:border-gray-900 shadow-sm z-10" />
             )}
           </div>
@@ -609,12 +630,12 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 min-w-0">
               <h2 className="font-semibold text-gray-900 dark:text-white leading-tight truncate">
-                {chat.isGroup ? (chat.groupName || 'Grup') : otherUserDetails?.username}
+                {liveChat.isGroup ? (liveChat.groupName || 'Grup') : otherUserDetails?.username}
               </h2>
-              {isVerified && !chat.isGroup && <VerifiedBadge className="w-4 h-4 flex-shrink-0" />}
+              {isVerified && !liveChat.isGroup && <VerifiedBadge className="w-4 h-4 flex-shrink-0" />}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-              {chat.isGroup ? (chat.groupDescription || `${chat.participants?.length || 0} katılımcı`) :
+              {liveChat.isGroup ? (liveChat.groupDescription || `${liveChat.participants?.length || 0} katılımcı`) :
                isSystemChat ? 'Talko Resmi Hesabı' : 
                isAiChat ? (aiState.isGenerating ? <span className="text-blue-500 dark:text-blue-400 italic">Düşünüyor...</span> : 'Resmî Yapay Zekâ Asistanı') :
                otherUserDetails?.isBanned ? 'Çevrimdışı' :
@@ -634,12 +655,12 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           const isMine = msg.senderId === currentUser?.uid;
           const showAvatar = !isMine && (idx === 0 || messages[idx - 1].senderId !== msg.senderId);
           
-          const senderName = chat.isGroup
-            ? (chat.participantDetails?.[msg.senderId]?.username || 'Katılımcı')
+          const senderName = liveChat.isGroup
+            ? (liveUsers[msg.senderId]?.username || liveChat.participantDetails?.[msg.senderId]?.username || 'Katılımcı')
             : otherUserDetails?.username;
             
-          const senderPhoto = chat.isGroup
-            ? chat.participantDetails?.[msg.senderId]?.photoURL
+          const senderPhoto = liveChat.isGroup
+            ? (liveUsers[msg.senderId]?.photoURL || liveChat.participantDetails?.[msg.senderId]?.photoURL)
             : otherUserDetails?.photoURL;
 
           return (
@@ -674,7 +695,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                   isMine ? "bg-blue-600 text-white rounded-br-sm" : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm"
                 )}
               >
-                {chat.isGroup && !isMine && showAvatar && (
+                {liveChat.isGroup && !isMine && showAvatar && (
                   <p className="text-xs font-bold text-blue-500 dark:text-blue-400 mb-1 select-none">
                     {senderName}
                   </p>
@@ -719,7 +740,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         {isOtherUserTyping && !isAiChat && (
           <div className="flex justify-start pl-10 w-full">
             <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex flex-col gap-1">
-              {chat.isGroup && groupTypersText && (
+              {liveChat.isGroup && groupTypersText && (
                 <span className="text-[10px] text-blue-500 font-bold mb-0.5">{groupTypersText.split(' yazıyor...')[0]}</span>
               )}
               <div className="flex items-center gap-1.5">

@@ -11,6 +11,8 @@ import AuthScreen from './components/AuthScreen';
 import MainLayout from './components/MainLayout';
 import AdminPanel from './components/AdminPanel';
 import BannedScreen from './components/BannedScreen';
+import SplashScreen from './components/SplashScreen';
+import { motion, AnimatePresence } from 'motion/react';
 
 function AppContent() {
   const { currentUser, userProfile } = useAuth();
@@ -35,17 +37,33 @@ function AppContent() {
   if (userProfile?.isBanned) {
     return <BannedScreen />;
   }
-  
+
   return <MainLayout />;
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <Toaster position="top-center" />
-        <AppContent />
-      </AuthProvider>
+      <Toaster position="top-center" />
+      <AnimatePresence mode="wait">
+        {showSplash ? (
+          <SplashScreen key="splash" onComplete={() => setShowSplash(false)} />
+        ) : (
+          <AuthProvider>
+            <motion.div
+              key="app-main-content"
+              className="h-screen w-full relative overflow-hidden bg-slate-950"
+              initial={{ y: 30, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <AppContent />
+            </motion.div>
+          </AuthProvider>
+        )}
+      </AnimatePresence>
     </ThemeProvider>
   );
 }

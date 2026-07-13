@@ -207,9 +207,8 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
       
       const isSystem = otherUserId === SYSTEM_USER_ID;
       const isAi = otherUserId === TALKO_AI_USER_ID;
-      isVerified = isSystem || isAi;
-      
       const userObj = otherUserId === currentUser?.uid ? userProfile : allUsers.find(u => u.uid === otherUserId);
+      isVerified = isSystem || isAi || (userObj?.isVerified || false);
       otherUser = isSystem 
         ? { username: 'Talko Updates', photoURL: TALKO_LOGO_DATA_URL }
         : isAi
@@ -295,7 +294,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
   const renderUserButton = (user: User) => {
     const isSystem = user.uid === SYSTEM_USER_ID;
     const isAi = user.uid === TALKO_AI_USER_ID;
-    const isVerified = isSystem || isAi;
+    const isVerified = isSystem || isAi || (user.isVerified || false);
 
     return (
       <button

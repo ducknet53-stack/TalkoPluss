@@ -10,6 +10,8 @@ export interface User {
   createdAt: number;
   isBanned?: boolean;
   bannedAt?: number;
+  isVerified?: boolean;
+  isAdmin?: boolean;
 }
 
 export interface Chat {
