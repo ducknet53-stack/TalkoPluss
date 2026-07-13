@@ -1,0 +1,4 @@
+1. We suspect `isBanned` check in rules throws an error for older users.
+2. We also noticed `photoURL: photoURL` could be undefined.
+3. We need to fix the rules to be safe.
+4. We need to fix `undefined` in Chat creation.
