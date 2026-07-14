@@ -12,6 +12,7 @@ export interface User {
   bannedAt?: number;
   isVerified?: boolean;
   isAdmin?: boolean;
+  verificationStatus?: 'pending' | 'approved' | 'rejected' | null;
 }
 
 export interface Chat {

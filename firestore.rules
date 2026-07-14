@@ -77,5 +77,8 @@ service cloud.firestore {
         allow write: if isAuthenticated() && isNotBanned() && isOwner(userId);
       }
     }
+    match /mail/{mailId} {
+      allow create: if isAdmin();
+    }
   }
 }
