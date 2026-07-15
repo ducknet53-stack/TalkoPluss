@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, updateDoc, increment } from 'firebase/firestore';
-import { ArrowLeft, Send, Image as ImageIcon, Smile, User as UserIcon, Loader2 } from 'lucide-react';
+import { ArrowLeft, Send, Image as ImageIcon, Smile, User as UserIcon, Loader2, MoreVertical, Ban, ShieldAlert, Flag, CheckCircle2, ShieldBan, X, Copy } from 'lucide-react';
 import EmojiPicker from 'emoji-picker-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,6 +9,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import { Chat, Message } from '../types';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
+import { formatLastSeen } from '../lib/dateUtils';
+import { motion, AnimatePresence } from 'motion/react';
 import { SYSTEM_USER_ID, TALKO_AI_USER_ID } from '../lib/systemAccount';
 import { TALKO_LOGO_DATA_URL, TALKO_AI_LOGO_DATA_URL } from '../lib/assets';
 import { cn } from '../lib/utils';
@@ -72,6 +74,67 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         : (liveUsers[otherUserId || ''] || chat?.participantDetails?.[otherUserId || ''] || {}));
 
   const isVerified = isSystemChat || isAiChat || (otherUserDetails?.isVerified || false);
+
+  const [isBlockMenuOpen, setIsBlockMenuOpen] = useState(false);
+  const [selectedMessageForReport, setSelectedMessageForReport] = useState<Message | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState<string>('');
+
+  const isBlockedByMe = userProfile?.blockedUsers?.includes(otherUserId || '');
+  const isBlockedByOther = otherUserDetails?.blockedUsers?.includes(currentUser?.uid || '');
+  const isBlocked = isBlockedByMe || isBlockedByOther;
+
+  const handleBlockUser = async () => {
+    if (!currentUser?.uid || !otherUserId) return;
+    try {
+      const userRef = doc(db, 'users', currentUser.uid);
+      const currentBlocked = userProfile?.blockedUsers || [];
+      await updateDoc(userRef, {
+        blockedUsers: [...currentBlocked, otherUserId]
+      });
+      setIsBlockMenuOpen(false);
+      toast.success('Kullanıcı engellendi.');
+    } catch (err) {
+      toast.error('Hata oluştu.');
+    }
+  };
+
+  const handleUnblockUser = async () => {
+    if (!currentUser?.uid || !otherUserId) return;
+    try {
+      const userRef = doc(db, 'users', currentUser.uid);
+      const currentBlocked = userProfile?.blockedUsers || [];
+      await updateDoc(userRef, {
+        blockedUsers: currentBlocked.filter(id => id !== otherUserId)
+      });
+      setIsBlockMenuOpen(false);
+      toast.success('Kullanıcı engeli kaldırıldı.');
+    } catch (err) {
+      toast.error('Hata oluştu.');
+    }
+  };
+
+  const handleSubmitReport = async () => {
+    if (!currentUser || !selectedMessageForReport || !reportReason) return;
+    try {
+      const reportRef = doc(collection(db, 'reports'));
+      await setDoc(reportRef, {
+        id: reportRef.id,
+        messageId: selectedMessageForReport.id,
+        chatId: chat.id,
+        reporterId: currentUser.uid,
+        reportedUserId: selectedMessageForReport.senderId,
+        reason: reportReason,
+        timestamp: Date.now()
+      });
+      toast.success('Rapor başarıyla gönderildi.');
+      setShowReportModal(false);
+      setSelectedMessageForReport(null);
+      setReportReason('');
+    } catch (err) {
+      toast.error('Rapor gönderilemedi.');
+    }
+  };
 
   useEffect(() => {
     if (!currentUser) return;
@@ -622,7 +685,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                 </div>
               )}
             </div>
-            {otherUserOnline && !isVerified && !liveChat.isGroup && (
+            {otherUserOnline && !isVerified && !liveChat.isGroup && !isBlocked && (
               <span className="absolute bottom-0 right-0 block w-3 h-3 rounded-full bg-green-500 border-2 border-white dark:border-gray-900 shadow-sm z-10" />
             )}
           </div>
@@ -639,12 +702,56 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                isSystemChat ? 'Talko Resmi Hesabı' : 
                isAiChat ? (aiState.isGenerating ? <span className="text-blue-500 dark:text-blue-400 italic">Düşünüyor...</span> : 'Resmî Yapay Zekâ Asistanı') :
                otherUserDetails?.isBanned ? 'Çevrimdışı' :
+               isBlocked ? '' :
                isOtherUserTyping ? <span className="text-blue-500 dark:text-blue-400 italic">yazıyor...</span> :
                otherUserOnline ? <span className="text-blue-600 dark:text-blue-400 font-medium">Çevrimiçi</span> : 
-               otherUserLastSeen ? `Son görülme: ${format(otherUserLastSeen, 'HH:mm', { locale: tr })}` : 'Çevrimdışı'}
+               otherUserLastSeen ? `Son görülme ${formatLastSeen(otherUserLastSeen)}` : 'Çevrimdışı'}
             </p>
           </div>
         </div>
+        
+        {/* Block Menu for 1-1 Chat */}
+        {!liveChat.isGroup && !isSystemChat && !isAiChat && (
+          <div className="relative ml-2">
+            <button 
+              onClick={() => setIsBlockMenuOpen(!isBlockMenuOpen)}
+              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors focus:outline-none"
+            >
+              <MoreVertical size={20} />
+            </button>
+            <AnimatePresence>
+              {isBlockMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsBlockMenuOpen(false)} />
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                    className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 z-50 overflow-hidden"
+                  >
+                    {isBlockedByMe ? (
+                      <button 
+                        onClick={handleUnblockUser}
+                        className="w-full px-4 py-3 flex items-center gap-3 text-left text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      >
+                        <ShieldBan size={18} />
+                        <span>Engeli Kaldır</span>
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={handleBlockUser}
+                        className="w-full px-4 py-3 flex items-center gap-3 text-left text-sm font-medium text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      >
+                        <Ban size={18} />
+                        <span>Kullanıcıyı Engelle</span>
+                      </button>
+                    )}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
 
       <div 
@@ -690,9 +797,14 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
               
               <div 
                 style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setSelectedMessageForReport(msg);
+                }}
                 className={cn(
-                  "max-w-[75%] md:max-w-[65%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm relative group break-words",
-                  isMine ? "bg-blue-600 text-white rounded-br-sm" : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm"
+                  "max-w-[75%] md:max-w-[65%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm relative group break-words transition-all duration-200",
+                  isMine ? "bg-blue-600 text-white rounded-br-sm" : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm",
+                  selectedMessageForReport?.id === msg.id && "ring-2 ring-blue-500 scale-[1.02] shadow-md z-10"
                 )}
               >
                 {liveChat.isGroup && !isMine && showAvatar && (
@@ -754,17 +866,19 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
 
         {isAiChat && aiState.isGenerating && (
           <div className="flex w-full min-w-0 px-0.5 justify-start">
-            <div className={cn("w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mr-2 mt-auto bg-gray-100 dark:bg-gray-800 transition-transform duration-1000", aiState.isThinking && "animate-breathe")}>
+            <div className={cn("w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mr-2 mt-auto bg-gray-100 dark:bg-gray-800 transition-transform duration-1000", (aiState.isThinking || aiState.isGenerating) && "animate-breathe")}>
               <img src={TALKO_AI_LOGO_DATA_URL} alt="Talko AI" className="w-full h-full object-cover" />
             </div>
-            <div className="max-w-[75%] md:max-w-[65%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm relative group break-words bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm">
+            <div className="max-w-[75%] md:max-w-[65%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm relative group break-words bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm overflow-hidden">
               {aiState.isThinking ? (
-                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
-                  <Loader2 size={16} className="animate-spin" />
-                  <span className="text-sm font-medium">Düşünüyor...</span>
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 relative">
+                  <div className="absolute inset-0 -translate-x-full animate-shimmer-slide bg-gradient-to-r from-transparent via-white/40 to-transparent z-10 mix-blend-overlay pointer-events-none"></div>
+                  <Loader2 size={16} className="animate-spin opacity-70" strokeWidth={2.5} />
+                  <span className="text-sm font-medium tracking-wide">Düşünüyor...</span>
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+                <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed relative">
+                  <div className="absolute inset-0 -translate-x-full animate-shimmer-slide bg-gradient-to-r from-transparent via-white/40 to-transparent z-10 mix-blend-overlay pointer-events-none"></div>
                   <span className="animate-shimmer-text">
                     {aiState.streamText}
                   </span>
@@ -800,6 +914,20 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
               </h4>
               <p className="text-xs text-red-800/85 dark:text-red-400/85 leading-relaxed">
                 Bu kullanıcı hesabı, topluluk kurallarını ihlal ettiği gerekçesiyle askıya alınmıştır. Bu hesaba mesaj gönderilemez.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : isBlocked ? (
+        <div className="p-4 pb-[calc(16px+env(safe-area-inset-bottom,0px))] bg-gray-50 dark:bg-gray-900/60 border-t border-gray-100 dark:border-gray-800 flex items-center justify-center">
+          <div className="max-w-md w-full bg-red-50/50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 rounded-2xl p-4 flex gap-3 shadow-sm">
+            <span className="text-xl select-none text-red-500" role="img" aria-label="blocked"><Ban size={24} /></span>
+            <div className="text-left">
+              <h4 className="text-sm font-semibold text-red-900 dark:text-red-300 mb-0.5">
+                Kullanıcı Engellendi
+              </h4>
+              <p className="text-xs text-red-800/85 dark:text-red-400/85 leading-relaxed">
+                Bu kullanıcı engellendi veya sizi engelledi. Bu sohbete mesaj gönderilemez.
               </p>
             </div>
           </div>
@@ -874,6 +1002,113 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           </form>
         </div>
       )}
+
+      {/* Message Context Menu */}
+      <AnimatePresence>
+        {selectedMessageForReport && !showReportModal && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedMessageForReport(null)}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end justify-center sm:items-center sm:p-4"
+            >
+              <motion.div 
+                initial={{ y: "100%" }}
+                animate={{ y: 0 }}
+                exit={{ y: "100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-md bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden pb-safe border border-gray-100 dark:border-gray-800"
+              >
+                <div className="p-4 pb-2 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                  <h3 className="font-semibold text-gray-900 dark:text-white pl-2">Mesaj Seçenekleri</h3>
+                  <button onClick={() => setSelectedMessageForReport(null)} className="p-2 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="p-2">
+                  <button 
+                    onClick={() => {
+                      if (selectedMessageForReport.text) {
+                        navigator.clipboard.writeText(selectedMessageForReport.text);
+                        toast.success('Mesaj kopyalandı.');
+                      }
+                      setSelectedMessageForReport(null);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-4 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl transition-colors text-gray-700 dark:text-gray-200"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                      <Copy size={20} />
+                    </div>
+                    <span className="font-medium text-[15px]">Kopyala</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowReportModal(true)}
+                    className="w-full flex items-center gap-3 px-4 py-4 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors text-red-600 dark:text-red-400 mt-1"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400">
+                      <Flag size={20} />
+                    </div>
+                    <span className="font-medium text-[15px]">Mesajı Bildir</span>
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          </>
+        )}
+        
+        {/* Report Reason Modal */}
+        {showReportModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-800"
+            >
+              <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                <h3 className="font-semibold text-lg text-gray-900 dark:text-white">Şikayet Nedeni</h3>
+                <button onClick={() => { setShowReportModal(false); setSelectedMessageForReport(null); setReportReason(''); }} className="p-2 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-2 space-y-1 max-h-[60vh] overflow-y-auto">
+                {['Spam', 'Hakaret', 'Taciz', 'Dolandırıcılık', 'Sahte Hesap', 'Diğer'].map((reason) => (
+                  <button
+                    key={reason}
+                    onClick={() => setReportReason(reason)}
+                    className={cn(
+                      "w-full text-left px-5 py-4 rounded-xl font-medium transition-all duration-200 flex items-center justify-between",
+                      reportReason === reason 
+                        ? "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400" 
+                        : "hover:bg-gray-50 text-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                    )}
+                  >
+                    <span>{reason}</span>
+                    {reportReason === reason && <CheckCircle2 size={18} className="text-red-600 dark:text-red-400" />}
+                  </button>
+                ))}
+              </div>
+              <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
+                <button
+                  onClick={handleSubmitReport}
+                  disabled={!reportReason}
+                  className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all disabled:opacity-50 disabled:hover:bg-red-600 shadow-sm active:scale-[0.98]"
+                >
+                  Şikayeti Gönder
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

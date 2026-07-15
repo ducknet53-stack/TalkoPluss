@@ -13,6 +13,7 @@ export interface User {
   isVerified?: boolean;
   isAdmin?: boolean;
   verificationStatus?: 'pending' | 'approved' | 'rejected' | null;
+  blockedUsers?: string[];
 }
 
 export interface Chat {

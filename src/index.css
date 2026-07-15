@@ -39,6 +39,10 @@ html, body, #root {
     animation: breathe 3s infinite ease-in-out;
   }
   
+  .animate-shimmer-slide {
+    animation: shimmer-slide 2s infinite linear;
+  }
+  
   @keyframes breathe {
     0%, 100% { transform: scale(1); opacity: 1; }
     50% { transform: scale(1.05); opacity: 0.9; }
