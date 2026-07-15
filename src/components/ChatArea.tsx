@@ -1051,70 +1051,12 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                     </div>
                     <span className="font-medium text-[15px]">Kopyala</span>
                   </button>
-                  <button 
-                    onClick={() => setShowReportModal(true)}
-                    className="w-full flex items-center gap-3 px-4 py-4 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors text-red-600 dark:text-red-400 mt-1"
-                  >
-                    <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400">
-                      <Flag size={20} />
-                    </div>
-                    <span className="font-medium text-[15px]">Mesajı Bildir</span>
-                  </button>
                 </div>
               </motion.div>
             </motion.div>
           </>
         )}
         
-        {/* Report Reason Modal */}
-        {showReportModal && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4"
-          >
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-800"
-            >
-              <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
-                <h3 className="font-semibold text-lg text-gray-900 dark:text-white">Şikayet Nedeni</h3>
-                <button onClick={() => { setShowReportModal(false); setSelectedMessageForReport(null); setReportReason(''); }} className="p-2 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="p-2 space-y-1 max-h-[60vh] overflow-y-auto">
-                {['Spam', 'Hakaret', 'Taciz', 'Dolandırıcılık', 'Sahte Hesap', 'Diğer'].map((reason) => (
-                  <button
-                    key={reason}
-                    onClick={() => setReportReason(reason)}
-                    className={cn(
-                      "w-full text-left px-5 py-4 rounded-xl font-medium transition-all duration-200 flex items-center justify-between",
-                      reportReason === reason 
-                        ? "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400" 
-                        : "hover:bg-gray-50 text-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-                    )}
-                  >
-                    <span>{reason}</span>
-                    {reportReason === reason && <CheckCircle2 size={18} className="text-red-600 dark:text-red-400" />}
-                  </button>
-                ))}
-              </div>
-              <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
-                <button
-                  onClick={handleSubmitReport}
-                  disabled={!reportReason}
-                  className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all disabled:opacity-50 disabled:hover:bg-red-600 shadow-sm active:scale-[0.98]"
-                >
-                  Şikayeti Gönder
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
       </AnimatePresence>
     </div>
   );

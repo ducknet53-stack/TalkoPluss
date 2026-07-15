@@ -1,124 +1,75 @@
 rules_version = '2';
-
-// 🚀 VERSİYON 5: Şikayet (Report) oluşturma izni düzeltildi.
-// Lütfen bu metnin tamamını kopyalayıp Firebase Console -> Firestore Database -> Rules sekmesine yapıştırın ve Publish'e tıklayın.
-
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // ----------------------------------------------------------------------
-    // GÜVENLİK FONKSİYONLARI (SECURITY FUNCTIONS)
-    // ----------------------------------------------------------------------
-    
-    // Check if user is authenticated
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    // Check if user is the owner of the document
     function isOwner(userId) {
       return request.auth.uid == userId;
     }
-
-    // Check if user has admin privileges
     function isAdmin() {
-      return isAuthenticated() && (
-        ("email" in request.auth.token && request.auth.token.email == "ducknet53@gmail.com") || (
+      return request.auth != null && (
+        ('email' in request.auth.token && request.auth.token.email == 'ducknet53@gmail.com') || 
+        (
           exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          'isAdmin' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
         )
       );
     }
-
-    // Check if the current user is NOT banned
     function isNotBanned() {
-      return isAuthenticated() && (
+      return request.auth != null && (
         !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
         !( 'isBanned' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data ) ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBanned != true
       );
     }
 
-    // ----------------------------------------------------------------------
-    // KULLANICILAR (USERS)
-    // ----------------------------------------------------------------------
+    // ADMIN OVERRIDE: Adminler her şeyi yapabilir, duyuru hatalarını kökten çözer.
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // NORMAL KULLANICI KURALLARI
     match /users/{userId} {
       allow read: if isAuthenticated();
-      // Allow user to write to their own profile, or admin, or system accounts
       allow write: if isAuthenticated() && (
         isOwner(userId) || 
         userId == 'system_talko_destek' || 
-        userId == 'system_talko_ai' ||
-        isAdmin()
+        userId == 'system_talko_ai'
       );
     }
     
-    // ----------------------------------------------------------------------
-    // HİKAYELER (STORIES)
-    // ----------------------------------------------------------------------
     match /stories/{storyId} {
-      // Stories can be read by any authenticated and not banned user
       allow read: if isAuthenticated() && isNotBanned();
-      // A user can create a story if they own it
       allow create: if isAuthenticated() && isNotBanned() && request.resource.data.userId == request.auth.uid;
-      // A user can update/delete their own stories
-      allow update, delete: if isAuthenticated() && isNotBanned() && (
-        (resource != null && resource.data.userId == request.auth.uid) || 
-        isAdmin()
-      );
+      allow update, delete: if isAuthenticated() && isNotBanned() && resource != null && resource.data.userId == request.auth.uid;
     }
     
-    // ----------------------------------------------------------------------
-    // DOĞRULAMALAR (VERIFICATIONS)
-    // ----------------------------------------------------------------------
     match /verifications/{verifId} {
-      // Allow reading own verification or if admin
-      allow read: if isAuthenticated() && (isAdmin() || (resource != null && resource.data.uid == request.auth.uid));
-      // Allow creating own verification
+      allow read: if isAuthenticated() && resource != null && resource.data.uid == request.auth.uid;
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
-      // Only admins can update or delete verifications
-      allow update, delete: if isAdmin();
     }
     
-    // ----------------------------------------------------------------------
-    // SOHBETLER VE MESAJLAR (CHATS & MESSAGES)
-    // ----------------------------------------------------------------------
     match /chats/{chatId} {
-      // Read chat if participant or admin
       allow read: if isAuthenticated() && isNotBanned() && (
-        isAdmin() || 
-        resource == null || 
-        request.auth.uid in resource.data.participants
+        resource == null || request.auth.uid in resource.data.participants
       );
-      
-      // Create chat if the creator is one of the participants
       allow create: if isAuthenticated() && isNotBanned() && (
-        isAdmin() || 
         request.auth.uid in request.resource.data.participants
       );
-      
-      // Update chat if existing participant
       allow update: if isAuthenticated() && isNotBanned() && (
-        isAdmin() || 
-        (resource != null && request.auth.uid in resource.data.participants)
+        (resource != null && request.auth.uid in resource.data.participants) ||
+        ('participants' in request.resource.data && request.auth.uid in request.resource.data.participants)
       );
       
-      // Only admins can delete chats
-      allow delete: if isAdmin();
-      
       match /messages/{messageId} {
-        // Read messages if participant of the parent chat
         allow read: if isAuthenticated() && isNotBanned() && (
-          isAdmin() || 
-          (
-            exists(/databases/$(database)/documents/chats/$(chatId)) && 
-            request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-          )
+          exists(/databases/$(database)/documents/chats/$(chatId)) && 
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
         );
-        
-        // Create messages if participant or system account
         allow create: if isAuthenticated() && isNotBanned() && (
-          isAdmin() || 
           (
             exists(/databases/$(database)/documents/chats/$(chatId)) && 
             request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
@@ -127,51 +78,23 @@ service cloud.firestore {
           request.resource.data.senderId == 'system_talko_ai' || 
           request.resource.data.senderId == 'system_group_info'
         );
-        
-        // Update messages if participant
         allow update: if isAuthenticated() && isNotBanned() && (
-          isAdmin() || 
-          (
-            exists(/databases/$(database)/documents/chats/$(chatId)) && 
-            request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-          )
+          exists(/databases/$(database)/documents/chats/$(chatId)) && 
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
         );
-        
-        // Delete messages if admin
-        allow delete: if isAdmin();
       }
       
       match /typing/{userId} {
-        // Read typing status if participant
         allow read: if isAuthenticated() && isNotBanned() && (
-          isAdmin() || 
-          (
-            exists(/databases/$(database)/documents/chats/$(chatId)) && 
-            request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-          )
+          exists(/databases/$(database)/documents/chats/$(chatId)) && 
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
         );
-        
-        // Write typing status if user matches userId
         allow write: if isAuthenticated() && isNotBanned() && isOwner(userId);
       }
     }
-
-    // ----------------------------------------------------------------------
-    // ŞİKAYETLER (REPORTS)
-    // ----------------------------------------------------------------------
+    
     match /reports/{reportId} {
-      // Şikayet oluşturma (Basitleştirildi: Giriş yapmış herkes gönderebilir)
       allow create: if request.auth != null;
-      
-      // Şikayetleri sadece admin okuyabilir, silebilir veya güncelleyebilir
-      allow read, update, delete: if isAdmin();
-    }
-
-    // ----------------------------------------------------------------------
-    // SİSTEM MAİLLERİ (SYSTEM MAIL)
-    // ----------------------------------------------------------------------
-    match /mail/{mailId} {
-      allow create: if isAdmin();
     }
   }
 }
