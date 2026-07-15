@@ -118,22 +118,28 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     if (!currentUser || !selectedMessageForReport || !reportReason) return;
     try {
       const reportRef = doc(collection(db, 'reports'));
-      await setDoc(reportRef, {
+      
+      // Güvenli payload oluştur: Firestore undefined değerleri kabul etmez.
+      // Eğer eski bir mesajsa ve id/senderId yoksa varsayılan değerler atıyoruz.
+      const payload = {
         id: reportRef.id,
-        messageId: selectedMessageForReport.id,
-        chatId: chat.id,
+        messageId: selectedMessageForReport.id || 'unknown_message_id',
+        chatId: chat?.id || 'unknown_chat_id',
         reporterId: currentUser.uid,
-        reportedUserId: selectedMessageForReport.senderId,
+        reportedUserId: selectedMessageForReport.senderId || 'unknown_sender_id',
         reason: reportReason,
         timestamp: Date.now()
-      });
+      };
+
+      await setDoc(reportRef, payload);
       toast.success('Rapor başarıyla gönderildi.');
       setShowReportModal(false);
       setSelectedMessageForReport(null);
       setReportReason('');
-    } catch (err) {
+    } catch (err: any) {
       console.error("Report error:", err);
-      toast.error('Rapor gönderilemedi.');
+      // Hatanın tam nedenini kullanıcıya göstererek (izin hatası mı, veri hatası mı) anlamamızı sağlar
+      toast.error(err.message ? `Hata: ${err.message}` : 'Rapor gönderilemedi.');
     }
   };
 
