@@ -1,4 +1,8 @@
 rules_version = '2';
+
+// 🚀 VERSİYON 5: Şikayet (Report) oluşturma izni düzeltildi.
+// Lütfen bu metnin tamamını kopyalayıp Firebase Console -> Firestore Database -> Rules sekmesine yapıştırın ve Publish'e tıklayın.
+
 service cloud.firestore {
   match /databases/{database}/documents {
     
