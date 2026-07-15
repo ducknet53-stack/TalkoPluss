@@ -2,6 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // ----------------------------------------------------------------------
+    // GÜVENLİK FONKSİYONLARI (SECURITY FUNCTIONS)
+    // ----------------------------------------------------------------------
+    
     // Check if user is authenticated
     function isAuthenticated() {
       return request.auth != null;
@@ -31,6 +35,9 @@ service cloud.firestore {
       );
     }
 
+    // ----------------------------------------------------------------------
+    // KULLANICILAR (USERS)
+    // ----------------------------------------------------------------------
     match /users/{userId} {
       allow read: if isAuthenticated();
       // Allow user to write to their own profile, or admin, or system accounts
@@ -42,6 +49,9 @@ service cloud.firestore {
       );
     }
     
+    // ----------------------------------------------------------------------
+    // HİKAYELER (STORIES)
+    // ----------------------------------------------------------------------
     match /stories/{storyId} {
       // Stories can be read by any authenticated and not banned user
       allow read: if isAuthenticated() && isNotBanned();
@@ -54,6 +64,9 @@ service cloud.firestore {
       );
     }
     
+    // ----------------------------------------------------------------------
+    // DOĞRULAMALAR (VERIFICATIONS)
+    // ----------------------------------------------------------------------
     match /verifications/{verifId} {
       // Allow reading own verification or if admin
       allow read: if isAuthenticated() && (isAdmin() || (resource != null && resource.data.uid == request.auth.uid));
@@ -63,6 +76,9 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
     
+    // ----------------------------------------------------------------------
+    // SOHBETLER VE MESAJLAR (CHATS & MESSAGES)
+    // ----------------------------------------------------------------------
     match /chats/{chatId} {
       // Read chat if participant or admin
       allow read: if isAuthenticated() && isNotBanned() && (
@@ -136,11 +152,20 @@ service cloud.firestore {
       }
     }
 
+    // ----------------------------------------------------------------------
+    // ŞİKAYETLER (REPORTS)
+    // ----------------------------------------------------------------------
     match /reports/{reportId} {
-      allow create: if isAuthenticated();
+      // Şikayet oluşturma (Basitleştirildi: Giriş yapmış herkes gönderebilir)
+      allow create: if request.auth != null;
+      
+      // Şikayetleri sadece admin okuyabilir, silebilir veya güncelleyebilir
       allow read, update, delete: if isAdmin();
     }
 
+    // ----------------------------------------------------------------------
+    // SİSTEM MAİLLERİ (SYSTEM MAIL)
+    // ----------------------------------------------------------------------
     match /mail/{mailId} {
       allow create: if isAdmin();
     }

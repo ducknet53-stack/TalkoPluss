@@ -132,6 +132,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       setSelectedMessageForReport(null);
       setReportReason('');
     } catch (err) {
+      console.error("Report error:", err);
       toast.error('Rapor gönderilemedi.');
     }
   };
