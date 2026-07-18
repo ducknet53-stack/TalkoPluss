@@ -9,6 +9,13 @@ html, body, #root {
   padding: 0;
   overflow: hidden;
   position: fixed;
+  background-color: #ffffff;
+  overscroll-behavior: none;
+  transition: background-color 0.2s ease;
+}
+
+html.dark, html.dark body, html.dark #root {
+  background-color: #111827;
 }
 
 @layer utilities {

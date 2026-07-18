@@ -53,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         
         let welcomeChecked = false;
+        let isInitialLoad = true;
         // Listen to profile updates
         unsubscribeProfile = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
@@ -76,6 +77,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 sendWelcomeMessageIfNeeded(user.uid, data.username, data.photoURL);
               }).catch(e => console.error("Error setting up system account or welcome message:", e));
             }
+          }
+          if (isInitialLoad) {
+            isInitialLoad = false;
+            setLoading(false);
+          }
+        }, (err) => {
+          console.error("Profile snapshot error:", err);
+          if (isInitialLoad) {
+            isInitialLoad = false;
+            setLoading(false);
           }
         });
 
@@ -168,8 +179,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           window.removeEventListener('online', handleOnline);
           setOffline();
         };
-
-        setLoading(false);
       } else {
         setUserProfile(null);
         setLoading(false);

@@ -24,8 +24,8 @@ interface SidebarProps {
 export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: SidebarProps) {
   const { currentUser, userProfile } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [chats, setChats] = useState<Chat[] | null>(null);
+  const [allUsers, setAllUsers] = useState<User[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
 
@@ -54,7 +54,10 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
       });
 
       setChats(fetchedChats);
-    }, (err) => console.error("CHATS ERROR: " + err.message));
+    }, (err) => {
+      console.error("CHATS ERROR: " + err.message);
+      setChats([]);
+    });
 
     return () => unsubscribe();
   }, [currentUser]);
@@ -79,6 +82,9 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
       });
 
       setAllUsers(fetchedUsers);
+    }, (err) => {
+      console.error("USERS ERROR: " + err.message);
+      setAllUsers([]);
     });
 
     return () => unsubscribe();
@@ -86,7 +92,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
 
   // 3. Proactively ensure the Talko Destek (System Chat) is created for this user
   useEffect(() => {
-    if (!currentUser || !userProfile) return;
+    if (!currentUser || !userProfile || !chats) return;
 
     const hasSystemChat = chats.some(c => c.participants.includes(SYSTEM_USER_ID));
     if (!hasSystemChat) {
@@ -99,7 +105,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
   }, [chats, currentUser, userProfile]);
 
   const startChat = async (targetUser: User) => {
-    if (!currentUser || !userProfile) return;
+    if (!currentUser || !userProfile || !chats) return;
 
     const chatId = [currentUser.uid, targetUser.uid].sort().join('_');
     
@@ -147,9 +153,9 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
   };
 
   // Filter out banned users for UI lists in real-time
-  const visibleAllUsers = allUsers.filter(u => !u.isBanned);
+  const visibleAllUsers = allUsers ? allUsers.filter(u => !u.isBanned) : [];
 
-  const visibleChats = chats.filter(chat => {
+  const visibleChats = chats ? chats.filter(chat => {
     if (!chat || !chat.participants) return false;
     if (chat.isGroup) return true; // Group chats are always visible to participants
     
@@ -157,11 +163,11 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
     if (otherUserId === SYSTEM_USER_ID) return true;
     
     // Check if the other user is banned in allUsers in real-time
-    const otherUserObj = allUsers.find(u => u.uid === otherUserId);
+    const otherUserObj = allUsers?.find(u => u.uid === otherUserId);
     if (otherUserObj?.isBanned) return false;
     
     return true;
-  });
+  }) : [];
 
   // Instant local filtering
   const filteredChats = visibleChats.filter(chat => {
@@ -171,7 +177,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
     const otherUserId = chat.participants.find(id => id !== currentUser?.uid) || currentUser?.uid;
     const isSystem = otherUserId === SYSTEM_USER_ID;
     const isAi = otherUserId === TALKO_AI_USER_ID;
-    const userObj = otherUserId === currentUser?.uid ? userProfile : allUsers.find(u => u.uid === otherUserId);
+    const userObj = otherUserId === currentUser?.uid ? userProfile : allUsers?.find(u => u.uid === otherUserId);
     const otherUser = isSystem 
       ? { username: 'Talko Updates' }
       : isAi
@@ -393,7 +399,30 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
 
       {/* Chat List & User List */}
       <div className="flex-1 overflow-y-auto">
-        {searchQuery.length > 0 ? (
+        {chats === null || allUsers === null ? (
+          <div className="p-4 space-y-4">
+            <div className="space-y-3">
+              <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded-md w-24 animate-pulse" />
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-850 animate-pulse" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded-md w-1/3 animate-pulse" />
+                  <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded-md w-1/2 animate-pulse" />
+                </div>
+              </div>
+            </div>
+            <div className="space-y-3 pt-4">
+              <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded-md w-24 animate-pulse" />
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-850 animate-pulse" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded-md w-1/4 animate-pulse" />
+                  <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded-md w-1/3 animate-pulse" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : searchQuery.length > 0 ? (
           <div className="p-2 space-y-4">
             {/* Filtered Chats */}
             {filteredChats.length > 0 && (

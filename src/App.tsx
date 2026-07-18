@@ -54,7 +54,7 @@ export default function App() {
           <AuthProvider>
             <motion.div
               key="app-main-content"
-              className="h-screen w-full relative overflow-hidden bg-slate-950"
+              className="h-full w-full relative overflow-hidden bg-white dark:bg-gray-900 transition-colors"
               initial={{ y: 30, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
