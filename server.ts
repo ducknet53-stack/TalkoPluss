@@ -3,13 +3,26 @@ import { createServer as createViteServer } from "vite";
 import OpenAI from "openai";
 import cors from "cors";
 import path from "path";
+import { GoogleGenAI } from "@google/genai";
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Initialize Gemini Client
+const geminiClient = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    }
+  }
+});
+
 app.post("/api/ai/chat", async (req, res) => {
   try {
+    const { message, history } = req.body;
+
     const token = process.env.GITHUB_TOKEN;
     if (!token) {
       throw new Error("GITHUB_TOKEN is not set in environment variables.");
@@ -19,8 +32,6 @@ app.post("/api/ai/chat", async (req, res) => {
       baseURL: "https://models.inference.ai.azure.com",
       apiKey: token,
     });
-
-    const { message, history } = req.body;
 
     const formattedHistory = history.map((msg: any) => ({
       role: msg.role === "user" ? "user" : "assistant",
@@ -33,7 +44,7 @@ app.post("/api/ai/chat", async (req, res) => {
         {
           role: "system",
           content:
-            "Sen Talko AI'sın. Talko'nun resmi yapay zeka asistanısın. Kullanıcıların sorularını yanıtlarsın. Kullanıcılara yardım et ve nazik ol.",
+            "Sen Talko AI'sın. Talko'nun resmi yapay zeka asistanısın. Kullanıcıların sorularını samimi, nazik ve son derece profesyonelce yanıtlarsın. Yardımsever ve zeki bir asistan ol.",
         },
         ...formattedHistory,
         { role: "user", content: message },

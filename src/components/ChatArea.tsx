@@ -589,14 +589,14 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       });
       
       if (isAiChat || (liveChat.isGroup && messageText.toLowerCase().includes('@talko ai'))) {
+        const cleanMessage = isAiChat ? messageText : messageText.replace(/@talko ai/gi, '').trim();
+
         setAiState({ isGenerating: true, isThinking: true, streamText: '' });
         try {
           const history = messages.slice(-15).map(m => ({
             role: m.senderId === TALKO_AI_USER_ID ? 'model' : 'user',
             text: m.text || ''
           }));
-          
-          const cleanMessage = isAiChat ? messageText : messageText.replace(/@talko ai/gi, '').trim();
 
           const response = await fetch('/api/ai/chat', {
             method: 'POST',
@@ -1039,22 +1039,40 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
 
         {(isAiChat || liveChat.isGroup) && aiState.isGenerating && (
           <div className="flex w-full min-w-0 px-0.5 justify-start">
-            <div className={cn("w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mr-2 mt-auto bg-gray-100 dark:bg-gray-800 transition-transform duration-1000", (aiState.isThinking || aiState.isGenerating) && "animate-breathe")}>
-              <img src={TALKO_AI_LOGO_DATA_URL} alt="Talko AI" className="w-full h-full object-cover" />
+            <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mr-2 mt-auto bg-gradient-to-tr from-blue-500 to-indigo-600 p-[1.5px] shadow-md ring-2 ring-blue-500/10">
+              <img src={TALKO_AI_LOGO_DATA_URL} alt="Talko AI" className="w-full h-full object-cover rounded-full bg-white dark:bg-gray-950" />
             </div>
-            <div className="max-w-[75%] md:max-w-[65%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm relative group break-words bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm overflow-hidden">
+            <div className="max-w-[75%] md:max-w-[65%] min-w-0 rounded-2xl px-4 py-2.5 shadow-md relative group break-words bg-gradient-to-br from-white to-gray-50/50 dark:from-gray-800 dark:to-gray-900/50 text-gray-900 dark:text-gray-100 border border-gray-150 dark:border-gray-800 rounded-bl-sm overflow-hidden">
               {aiState.isThinking ? (
-                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 relative">
-                  <div className="absolute inset-0 -translate-x-full animate-shimmer-slide bg-gradient-to-r from-transparent via-white/40 to-transparent z-10 mix-blend-overlay pointer-events-none"></div>
-                  <Loader2 size={16} className="animate-spin opacity-70" strokeWidth={2.5} />
-                  <span className="text-sm font-medium tracking-wide">Düşünüyor...</span>
+                <div className="flex items-center gap-3 py-1 px-0.5">
+                  <div className="flex items-center gap-1 h-5">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <motion.div
+                        key={i}
+                        className="w-1 bg-gradient-to-t from-blue-500 via-indigo-500 to-purple-500 rounded-full"
+                        initial={{ height: 4 }}
+                        animate={{ height: [4, 18, 4] }}
+                        transition={{
+                          duration: 1.2,
+                          repeat: Infinity,
+                          delay: i * 0.15,
+                          ease: "easeInOut"
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <motion.span 
+                    initial={{ opacity: 0.6 }}
+                    animate={{ opacity: [0.6, 1, 0.6] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                    className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-widest pl-1"
+                  >
+                    Yazıyor
+                  </motion.span>
                 </div>
               ) : (
                 <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed relative">
-                  <div className="absolute inset-0 -translate-x-full animate-shimmer-slide bg-gradient-to-r from-transparent via-white/40 to-transparent z-10 mix-blend-overlay pointer-events-none"></div>
-                  <span className="animate-shimmer-text">
-                    {aiState.streamText}
-                  </span>
+                  {aiState.streamText}
                 </p>
               )}
             </div>
@@ -1101,15 +1119,58 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         </div>
       ) : (
         <div className="p-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800">
+          {/* Quick Prompts */}
+          {(isAiChat || inputText.toLowerCase().includes('@talko ai') || mentionQuery) && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-1.5 no-scrollbar scroll-smooth">
+              <span className="text-[10px] font-bold text-blue-500 dark:text-blue-400 flex-shrink-0 uppercase tracking-wider ml-1">İpuçları:</span>
+              {[
+                { label: "✍️ Özetle", template: "bunu özetle: " },
+                { label: "🌍 İngilizceye Çevir", template: "bu metni İngilizceye çevir: " },
+                { label: "💡 Fikir Ver", template: "bana şu konuda yaratıcı fikirler ver: " },
+                { label: "🌦️ Hava Durumu", template: "bugün hava nasıl olacak?" },
+                { label: "📚 Hikaye Anlat", template: "bana kısa ve eğlenceli bir robot hikayesi anlat." }
+              ].map((item, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => {
+                    let newText = "";
+                    if (liveChat.isGroup) {
+                      newText = `@Talko AI ${item.template}`;
+                    } else {
+                      newText = item.template;
+                    }
+                    setInputText(newText);
+                    setMentionQuery(null);
+                    setTimeout(() => {
+                      textareaRef.current?.focus();
+                    }, 50);
+                  }}
+                  className="px-3 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-semibold rounded-full border border-gray-200/60 dark:border-gray-700/60 transition-all flex-shrink-0 active:scale-95 cursor-pointer"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
           <form 
             onSubmit={(e) => { e.preventDefault(); handleSendMessage(inputText); }}
             className="flex items-end gap-2 relative w-full min-w-0"
           >
             {mentionQuery && (
-              <div className="absolute bottom-full left-0 mb-2 w-64 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden z-50">
+              <motion.div 
+                initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                className="absolute bottom-full left-0 mb-2 w-72 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-150 dark:border-gray-800 overflow-hidden z-50 p-1.5 flex flex-col gap-1"
+              >
+                <div className="px-2.5 py-1 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                  Etiketle
+                </div>
                 <button
                   type="button"
-                  className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-left"
+                  className="w-full flex items-center gap-3 p-2 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 rounded-xl transition-all text-left active:scale-[0.98] cursor-pointer"
                   onClick={() => {
                     const newText = inputText.substring(0, mentionQuery.start) + '@Talko AI ' + inputText.substring(mentionQuery.end);
                     setInputText(newText);
@@ -1119,15 +1180,18 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                     }, 50);
                   }}
                 >
-                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-gray-100 dark:bg-gray-800">
-                    <img src={TALKO_AI_LOGO_DATA_URL} alt="Talko AI" className="w-full h-full object-cover" />
+                  <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-gradient-to-tr from-blue-500 to-purple-600 p-[1.5px]">
+                    <img src={TALKO_AI_LOGO_DATA_URL} alt="Talko AI" className="w-full h-full object-cover rounded-full bg-white dark:bg-gray-900" />
                   </div>
-                  <div>
-                    <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">Talko AI</p>
-                    <p className="text-xs text-gray-500">Resmî Yapay Zekâ Asistanı</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-bold text-[14px] text-gray-900 dark:text-gray-100 leading-none">Talko AI</p>
+                      <span className="text-[9px] bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 font-bold px-1.5 py-0.5 rounded-md">BOT</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-1">Grupta yapay zekâya soru sor</p>
                   </div>
                 </button>
-              </div>
+              </motion.div>
             )}
             
             {showEmojiPicker && (
