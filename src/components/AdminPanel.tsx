@@ -136,7 +136,9 @@ export default function AdminPanel() {
     const unsubscribe = onSnapshot(
       usersRef,
       (snapshot) => {
-        const fetchedUsers = snapshot.docs.map((doc) => doc.data() as User);
+        const fetchedUsers = snapshot.docs.map(
+          (doc) => ({ id: doc.id, uid: doc.id, ...doc.data() } as any)
+        );
         // Sort: Banned first, then online, then name
         fetchedUsers.sort((a, b) => {
           if (a.isBanned && !b.isBanned) return -1;
@@ -330,7 +332,7 @@ export default function AdminPanel() {
 
     const SYSTEM_USER_ID = "system_talko_destek";
     const targetUsers = users.filter(
-      (u) => u.uid !== SYSTEM_USER_ID && !u.isBanned,
+      (u) => u.uid && u.uid !== SYSTEM_USER_ID && !u.isBanned,
     );
 
     if (targetUsers.length === 0) {
@@ -366,7 +368,7 @@ export default function AdminPanel() {
                 photoURL: TALKO_LOGO_DATA_URL,
               },
               [user.uid]: {
-                username: user.username,
+                username: user.username || "Kullanıcı",
                 photoURL: user.photoURL || null,
               },
             },
