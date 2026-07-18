@@ -1,31 +1,77 @@
 import { useState } from 'react';
 import { TALKO_VERIFIED_SVG } from '../lib/assets';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface VerifiedBadgeProps {
   className?: string;
 }
 
 export function VerifiedBadge({ className = "w-4 h-4" }: VerifiedBadgeProps) {
-  const [showTooltip, setShowTooltip] = useState(false);
+  const [showModal, setShowModal] = useState(false);
 
   return (
-    <div className="relative inline-flex items-center ml-1">
+    <>
       <button 
         type="button"
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowTooltip(!showTooltip); }}
-        className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full flex-shrink-0 ${className}`}
+        onClick={(e) => { 
+          e.preventDefault(); 
+          e.stopPropagation(); 
+          setShowModal(true); 
+        }}
+        className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full flex-shrink-0 inline-flex items-center ml-1 ${className}`}
         dangerouslySetInnerHTML={{ __html: TALKO_VERIFIED_SVG }}
       />
       
-      {showTooltip && (
-        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-48 p-2 bg-gray-900 dark:bg-gray-800 text-white text-xs rounded-lg shadow-xl z-50 pointer-events-none text-center border border-gray-700/50">
-          <div className="font-semibold text-amber-500 mb-0.5">Talko Verified</div>
-          <div className="text-gray-300">Bu hesap Talko tarafından doğrulanmış resmî bir hesaptır.</div>
-          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 dark:bg-gray-800 rotate-45 border-r border-b border-gray-700/50"></div>
-        </div>
-      )}
-    </div>
+      <AnimatePresence>
+        {showModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowModal(false);
+            }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#121b22] dark:bg-[#121b22] w-full max-w-[360px] rounded-[32px] shadow-2xl overflow-hidden px-6 py-8 flex flex-col items-center text-center"
+            >
+              <div 
+                className="w-24 h-24 mb-6 drop-shadow-lg"
+                dangerouslySetInnerHTML={{ __html: TALKO_VERIFIED_SVG }}
+              />
+              
+              <h2 className="text-[22px] font-semibold text-white mb-6">
+                Talko Verified profilleri hakkında
+              </h2>
+              
+              <p className="text-[#d1d7db] text-[15px] mb-4 leading-relaxed font-medium">
+                İşletme ve kişisel profiller, hareketlerine ve sağladıkları bilgilere göre Talko tarafından doğrulanabilir. Doğrulanmış hesap rozetleri bu profillerde gösterilir.
+              </p>
+              
+              <p className="text-[#d1d7db] text-[15px] mb-6 leading-relaxed font-medium">
+                Bazı doğrulanmış profiller önemli bir kişi, marka veya kuruluşa aitken bazı profiller Talko Verified abonesidir.
+              </p>
+              
+              <p className="text-[#8696a0] text-sm mb-8 leading-relaxed">
+                Talko kullanan uygun hesaplar Talko Verified için başvurabilir. Hesabınızın uygun olup olmadığını <button className="text-[#53bdeb] font-semibold hover:underline">buradan</button> kontrol edebilirsiniz.
+              </p>
+
+              <button
+                onClick={() => setShowModal(false)}
+                className="w-full py-3 bg-[#25d366] hover:bg-[#20bd5a] text-[#111b21] rounded-full font-bold text-[15px] transition-all shadow-sm active:scale-[0.98]"
+              >
+                Daha fazla bilgi
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
