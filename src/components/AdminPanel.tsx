@@ -353,54 +353,60 @@ export default function AdminPanel() {
     try {
       for (let i = 0; i < targetUsers.length; i++) {
         const user = targetUsers[i];
-        const chatId = [SYSTEM_USER_ID, user.uid].sort().join("_");
-        const chatRef = doc(db, "chats", chatId);
+        if (!user || !user.uid) continue;
+        
+        try {
+          const chatId = [SYSTEM_USER_ID, user.uid].sort().join("_");
+          const chatRef = doc(db, "chats", chatId);
 
-        // Ensure the chat exists and is updated
-        await setDoc(
-          chatRef,
-          {
-            id: chatId,
-            participants: [SYSTEM_USER_ID, user.uid],
-            participantDetails: {
-              [SYSTEM_USER_ID]: {
-                username: "Talko Destek",
-                photoURL: TALKO_LOGO_DATA_URL,
+          // Ensure the chat exists and is updated
+          await setDoc(
+            chatRef,
+            {
+              id: chatId,
+              participants: [SYSTEM_USER_ID, user.uid],
+              participantDetails: {
+                [SYSTEM_USER_ID]: {
+                  username: "Talko Destek",
+                  photoURL: TALKO_LOGO_DATA_URL,
+                },
+                [user.uid]: {
+                  username: user.username || "Kullanıcı",
+                  photoURL: user.photoURL || null,
+                },
               },
-              [user.uid]: {
-                username: user.username || "Kullanıcı",
-                photoURL: user.photoURL || null,
-              },
+              lastMessage: announcementText,
+              lastMessageTimestamp: Date.now(),
+              updatedAt: Date.now(),
+              [`unreadCount.${user.uid}`]: increment(1),
             },
-            lastMessage: announcementText,
-            lastMessageTimestamp: Date.now(),
-            updatedAt: Date.now(),
-            [`unreadCount.${user.uid}`]: increment(1),
-          },
-          { merge: true },
-        );
+            { merge: true },
+          );
 
-        // Add message
-        const messageId =
-          Date.now().toString() +
-          "_" +
-          Math.random().toString(36).substring(2, 9);
-        const messageRef = doc(db, `chats/${chatId}/messages`, messageId);
-        await setDoc(messageRef, {
-          id: messageId,
-          senderId: SYSTEM_USER_ID,
-          text: announcementText,
-          imageUrl: announcementImage.trim() || null,
-          timestamp: Date.now(),
-        });
+          // Add message
+          const messageId =
+            Date.now().toString() +
+            "_" +
+            Math.random().toString(36).substring(2, 9);
+          const messageRef = doc(db, `chats/${chatId}/messages`, messageId);
+          await setDoc(messageRef, {
+            id: messageId,
+            senderId: SYSTEM_USER_ID,
+            text: announcementText,
+            imageUrl: announcementImage.trim() || null,
+            timestamp: Date.now(),
+          });
 
-        successCount++;
-        setBroadcastProgress(
-          Math.round((successCount / targetUsers.length) * 100),
-        );
+          successCount++;
+          setBroadcastProgress(
+            Math.round((successCount / targetUsers.length) * 100),
+          );
 
-        // Minor delay to keep Firestore writes paced and update UI smoothly
-        await new Promise((resolve) => setTimeout(resolve, 50));
+          // Minor delay to keep Firestore writes paced and update UI smoothly
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        } catch (innerErr) {
+          console.error(`Error sending broadcast to ${user.uid}:`, innerErr);
+        }
       }
 
       toast.success(`Duyuru başarıyla ${successCount} kullanıcıya gönderildi!`);

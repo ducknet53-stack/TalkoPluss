@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, updateDoc, increment } from 'firebase/firestore';
-import { ArrowLeft, Send, Image as ImageIcon, Smile, User as UserIcon, Loader2, MoreVertical, Ban, ShieldAlert, Flag, CheckCircle2, ShieldBan, X, Copy } from 'lucide-react';
+import { ArrowLeft, Send, Image as ImageIcon, Smile, User as UserIcon, Loader2, MoreVertical, Ban, ShieldAlert, Flag, CheckCircle2, ShieldBan, X, Copy, Megaphone, BarChart2, Plus, Trash2 } from 'lucide-react';
 import EmojiPicker from 'emoji-picker-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { Chat, Message } from '../types';
+import { Chat, Message, PollOption } from '../types';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { formatLastSeen } from '../lib/dateUtils';
@@ -31,6 +31,11 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const [inputText, setInputText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState([{ id: '1', text: 'Evet' }, { id: '2', text: 'Hayır' }]);
+
   const [otherUserOnline, setOtherUserOnline] = useState(false);
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<number | null>(null);
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
@@ -83,6 +88,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const isBlockedByMe = userProfile?.blockedUsers?.includes(otherUserId || '');
   const isBlockedByOther = otherUserDetails?.blockedUsers?.includes(currentUser?.uid || '');
   const isBlocked = isBlockedByMe || isBlockedByOther;
+  const isTalkoUpdatesChat = !liveChat?.isGroup && liveChat?.participants?.includes('system_talko_destek') && currentUser?.uid !== 'system_talko_destek';
 
   const handleBlockUser = async () => {
     if (!currentUser?.uid || !otherUserId) return;
@@ -438,6 +444,92 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       setDoc(typingRef, { isTyping: false, timestamp: Date.now() }).catch(() => {});
       lastMyTypingWriteRef.current = 0;
     }, 2500);
+  };
+
+  const handleSendPoll = async () => {
+    if (!pollQuestion.trim() || !currentUser || isSystemChat) return;
+    
+    const validOptions = pollOptions.filter(o => o.text.trim());
+    if (validOptions.length < 2) {
+      toast.error("Anket için en az 2 seçenek gereklidir.");
+      return;
+    }
+
+    const now = Date.now();
+    const messageId = now.toString() + Math.random().toString(36).substring(2, 5);
+    
+    try {
+      const messageRef = doc(db, `chats/${chat.id}/messages`, messageId);
+      await setDoc(messageRef, {
+        id: messageId,
+        senderId: currentUser.uid,
+        text: 'Anket oluşturuldu',
+        imageUrl: null,
+        timestamp: now,
+        type: 'poll',
+        pollQuestion: pollQuestion.trim(),
+        pollOptions: validOptions.map(o => ({
+          id: o.id,
+          text: o.text.trim(),
+          voters: []
+        }))
+      });
+
+      const unreadUpdates: Record<string, any> = {};
+      liveChat.participants.forEach(p => {
+        if (p !== currentUser.uid) {
+          unreadUpdates[`unreadCount.${p}`] = increment(1);
+        }
+      });
+
+      const chatRef = doc(db, 'chats', chat.id);
+      await updateDoc(chatRef, {
+        lastMessage: '📊 Anket',
+        lastMessageTimestamp: now,
+        updatedAt: now,
+        ...unreadUpdates
+      });
+      
+      setShowPollModal(false);
+      setPollQuestion('');
+      setPollOptions([{ id: '1', text: 'Evet' }, { id: '2', text: 'Hayır' }]);
+
+    } catch (err) {
+      console.error(err);
+      toast.error("Anket gönderilemedi.");
+    }
+  };
+
+  const handleVotePoll = async (messageId: string, optionId: string) => {
+    if (!currentUser) return;
+    
+    try {
+      const messageRef = doc(db, `chats/${chat.id}/messages`, messageId);
+      const messageDoc = await getDoc(messageRef);
+      if (!messageDoc.exists()) return;
+
+      const messageData = messageDoc.data() as Message;
+      if (messageData.type !== 'poll' || !messageData.pollOptions) return;
+
+      const updatedOptions = messageData.pollOptions.map(opt => {
+        // Remove user from all options first (single choice)
+        const voters = opt.voters.filter(uid => uid !== currentUser.uid);
+        
+        // Add to selected option
+        if (opt.id === optionId) {
+          voters.push(currentUser.uid);
+        }
+        
+        return { ...opt, voters };
+      });
+
+      await updateDoc(messageRef, {
+        pollOptions: updatedOptions
+      });
+    } catch (err) {
+      console.error('Error voting:', err);
+      toast.error('Oyunuz kaydedilemedi.');
+    }
   };
 
   const handleSendMessage = async (text: string, imageUrl: string | null = null) => {
@@ -835,13 +927,63 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                     className="max-w-full rounded-xl mb-2 object-cover max-h-64 cursor-pointer hover:opacity-95 transition-opacity" 
                   />
                 )}
-                {msg.text && (
+                {msg.text && msg.type !== 'poll' && (
                   <p 
                     style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
                     className="whitespace-pre-wrap break-words text-[15px] leading-relaxed"
                   >
                     {msg.text}
                   </p>
+                )}
+                {msg.type === 'poll' && msg.pollOptions && (
+                  <div className="mt-2 space-y-2 w-full min-w-[200px]">
+                    <h4 className="font-semibold text-[15px] mb-3 leading-snug">{msg.pollQuestion}</h4>
+                    {msg.pollOptions.map((opt) => {
+                      const totalVotes = msg.pollOptions!.reduce((acc, o) => acc + o.voters.length, 0);
+                      const percentage = totalVotes > 0 ? Math.round((opt.voters.length / totalVotes) * 100) : 0;
+                      const isVoted = currentUser ? opt.voters.includes(currentUser.uid) : false;
+                      
+                      return (
+                        <div 
+                          key={opt.id}
+                          onClick={() => handleVotePoll(msg.id, opt.id)}
+                          className={cn(
+                            "relative overflow-hidden rounded-xl border cursor-pointer transition-all p-2.5 text-sm group/poll",
+                            isVoted 
+                              ? (isMine ? "border-white/40 bg-white/10" : "border-blue-400 dark:border-blue-500/50 bg-blue-50 dark:bg-blue-900/20")
+                              : (isMine ? "border-blue-500/50 hover:bg-white/5" : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50")
+                          )}
+                        >
+                          <div 
+                            className={cn(
+                              "absolute top-0 left-0 bottom-0 transition-all duration-500 ease-out",
+                              isVoted 
+                                ? (isMine ? "bg-white/20" : "bg-blue-100 dark:bg-blue-800/40") 
+                                : (isMine ? "bg-blue-500/30" : "bg-gray-100 dark:bg-gray-800")
+                            )}
+                            style={{ width: `${percentage}%` }}
+                          />
+                          <div className="relative z-10 flex items-center justify-between gap-2">
+                            <span className={cn(
+                              "font-medium truncate",
+                              isMine ? "text-white" : "text-gray-900 dark:text-gray-100"
+                            )}>
+                              {opt.text}
+                            </span>
+                            <span className={cn(
+                              "text-xs font-semibold flex-shrink-0", 
+                              isMine ? "text-blue-100" : "text-gray-500 dark:text-gray-400"
+                            )}>
+                              {percentage}%
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="text-[10px] text-right mt-1 opacity-70">
+                      Toplam: {msg.pollOptions!.reduce((acc, o) => acc + o.voters.length, 0)} oy
+                    </div>
+                  </div>
                 )}
                 
                 <span className={cn(
@@ -898,17 +1040,11 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       </div>
 
       {isSystemChat ? (
-        <div className="p-4 pb-[calc(16px+env(safe-area-inset-bottom,0px))] bg-gray-50 dark:bg-gray-900/60 border-t border-gray-100 dark:border-gray-800 flex items-center justify-center">
-          <div className="max-w-md w-full bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 rounded-2xl p-4 flex gap-3 shadow-sm">
-            <span className="text-xl select-none" role="img" aria-label="lock">🔒</span>
-            <div className="text-left">
-              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-300 mb-0.5">
-                Talko Updates
-              </h4>
-              <p className="text-xs text-blue-800/85 dark:text-blue-400/85 leading-relaxed">
-                Bu doğrulanmış Talko Updates hesabıdır. Bu sohbet yalnızca resmî duyurular ve sistem bilgilendirmeleri için kullanılır. Bu hesaba mesaj gönderilemez.
-              </p>
-            </div>
+        <div className="p-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))] bg-white dark:bg-[#0b141a] border-t border-gray-200 dark:border-gray-800 flex items-center justify-center">
+          <div className="bg-[#f0f2f5] dark:bg-[#1f2c34] rounded-[24px] px-5 py-2.5 text-center shadow-sm max-w-[90%]">
+            <span className="text-[13.5px] text-[#54656f] dark:text-[#e9edef] leading-relaxed block">
+              Gönderen, yanıt kabul etmiyor. Gönderenle doğrudan iletişim kurun. <button className="text-[#027eb5] dark:text-[#53bdeb] hover:underline cursor-pointer transition-colors font-medium ml-1" onClick={() => toast("Daha fazla bilgi için Yardım Merkezi'ni ziyaret edin.", { icon: "ℹ️" })}>Daha fazla bilgi</button>
+            </span>
           </div>
         </div>
       ) : otherUserDetails?.isBanned ? (
@@ -974,7 +1110,18 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
             >
               {isUploading ? <Loader2 size={20} className="animate-spin sm:w-6 sm:h-6" /> : <ImageIcon size={20} className="sm:w-6 sm:h-6" />}
             </button>
-            
+
+            {liveChat.isGroup && (
+              <button
+                type="button"
+                onClick={() => setShowPollModal(true)}
+                className="p-2 sm:p-3 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full transition-colors flex-shrink-0"
+                title="Anket Oluştur"
+              >
+                <BarChart2 size={20} className="sm:w-6 sm:h-6" />
+              </button>
+            )}
+
             <textarea
               ref={textareaRef}
               value={inputText}
@@ -1057,6 +1204,106 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           </>
         )}
         
+      </AnimatePresence>
+      <AnimatePresence>
+        {showPollModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowPollModal(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 sm:p-0"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-gray-900 w-full max-w-[400px] rounded-[24px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-500">
+                    <BarChart2 size={18} />
+                  </div>
+                  <h3 className="font-bold text-gray-900 dark:text-white">Anket Oluştur</h3>
+                </div>
+                <button 
+                  onClick={() => setShowPollModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-5 overflow-y-auto flex-1">
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Soru</label>
+                  <input 
+                    type="text"
+                    value={pollQuestion}
+                    onChange={(e) => setPollQuestion(e.target.value)}
+                    placeholder="Bir soru sorun..."
+                    className="w-full bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all dark:text-white placeholder-gray-400"
+                    autoFocus
+                  />
+                </div>
+                
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Seçenekler</label>
+                  {pollOptions.map((opt, index) => (
+                    <div key={opt.id} className="flex items-center gap-2">
+                      <input 
+                        type="text"
+                        value={opt.text}
+                        onChange={(e) => {
+                          const newOptions = [...pollOptions];
+                          newOptions[index].text = e.target.value;
+                          setPollOptions(newOptions);
+                        }}
+                        placeholder={`Seçenek ${index + 1}`}
+                        className="flex-1 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all dark:text-white placeholder-gray-400"
+                      />
+                      {pollOptions.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPollOptions(pollOptions.filter(o => o.id !== opt.id));
+                          }}
+                          className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                {pollOptions.length < 10 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPollOptions([...pollOptions, { id: Date.now().toString(), text: '' }]);
+                    }}
+                    className="mt-4 flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium hover:underline text-sm px-1 py-2"
+                  >
+                    <Plus size={16} /> Yeni Seçenek Ekle
+                  </button>
+                )}
+              </div>
+              
+              <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
+                <button
+                  onClick={handleSendPoll}
+                  disabled={!pollQuestion.trim() || pollOptions.filter(o => o.text.trim()).length < 2}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 dark:disabled:bg-blue-800 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm active:scale-[0.98] disabled:active:scale-100 disabled:opacity-70 flex items-center justify-center gap-2 text-[15px]"
+                >
+                  <Send size={18} /> Anket Gönder
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );

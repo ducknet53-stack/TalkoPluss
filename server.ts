@@ -61,7 +61,7 @@ app.post("/api/ai/chat", async (req, res) => {
 
 
 async function startServer() {
-  const PORT = parseInt(process.env.PORT || "3000", 10);
+  const PORT = 3000;
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

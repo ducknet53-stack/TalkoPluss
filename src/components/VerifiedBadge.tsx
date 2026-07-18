@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { TALKO_VERIFIED_SVG } from '../lib/assets';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface VerifiedBadgeProps {
   className?: string;
@@ -58,9 +58,9 @@ export function VerifiedBadge({ className = "w-4 h-4" }: VerifiedBadgeProps) {
                 Bazı doğrulanmış profiller önemli bir kişi, marka veya kuruluşa aitken bazı profiller Talko Verified abonesidir.
               </p>
               
-              <p className="text-[#8696a0] text-sm mb-8 leading-relaxed">
+              <div className="text-[#8696a0] text-sm mb-8 leading-relaxed">
                 Talko kullanan uygun hesaplar Talko Verified için başvurabilir. Hesabınızın uygun olup olmadığını <button className="text-[#53bdeb] font-semibold hover:underline">buradan</button> kontrol edebilirsiniz.
-              </p>
+              </div>
 
               <button
                 onClick={() => setShowModal(false)}

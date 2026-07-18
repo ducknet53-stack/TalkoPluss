@@ -33,12 +33,21 @@ export interface Chat {
   unreadCount?: Record<string, number>;
 }
 
+export interface PollOption {
+  id: string;
+  text: string;
+  voters: string[];
+}
+
 export interface Message {
   id: string;
   senderId: string;
   text: string | null;
   imageUrl: string | null;
   timestamp: number;
+  type?: 'text' | 'poll';
+  pollQuestion?: string;
+  pollOptions?: PollOption[];
 }
 
 export interface TypingStatus {
