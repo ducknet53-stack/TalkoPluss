@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import type { ChangeEvent } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { ArrowLeft, Send, Image as ImageIcon, Smile, User as UserIcon, Loader2, MoreVertical, Ban, ShieldAlert, Flag, CheckCircle2, ShieldBan, X, Copy, Megaphone, BarChart2, Plus, Trash2 } from 'lucide-react';
@@ -17,6 +17,112 @@ import { cn } from '../lib/utils';
 import { uploadImage } from '../lib/imgbb';
 import toast from 'react-hot-toast';
 import { VerifiedBadge } from './VerifiedBadge';
+
+function renderMarkdown(text: string): ReactNode {
+  if (!text) return null;
+
+  // Split text into lines to process lists
+  const lines = text.split('\n');
+  
+  return (
+    <div className="space-y-1 text-inherit" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+      {lines.map((line, lineIndex) => {
+        // Check for list items
+        const listMatch = line.match(/^(\s*)([-*•]|\d+\.)\s+(.*)$/);
+        
+        let content = line;
+        let isListItem = false;
+        let listPadding = '';
+
+        if (listMatch) {
+          isListItem = true;
+          content = listMatch[3];
+          listPadding = listMatch[1] ? 'pl-4' : '';
+        }
+
+        // Inline formatting function
+        const renderInline = (str: string) => {
+          // Parse backticks for code, bold **text**, and italic *text*
+          // and @Talko AI mention
+          
+          // Let's split by backticks first
+          const partsByCode = str.split(/(`[^`\n]+`)/g);
+          
+          return partsByCode.map((part, partIdx) => {
+            if (part.startsWith('`') && part.endsWith('`')) {
+              const codeText = part.slice(1, -1);
+              return (
+                <code 
+                  key={`code-${partIdx}`} 
+                  className="bg-gray-200/50 dark:bg-gray-700/60 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded font-mono text-xs font-semibold mx-0.5"
+                >
+                  {codeText}
+                </code>
+              );
+            }
+
+            // Inside this text part, split by bold **text**
+            const partsByBold = part.split(/(\*\*[^*]+\*\*)/g);
+            return partsByBold.map((boldPart, boldIdx) => {
+              if (boldPart.startsWith('**') && boldPart.endsWith('**')) {
+                const boldText = boldPart.slice(2, -2);
+                return (
+                  <strong key={`bold-${boldIdx}`} className="font-bold text-gray-950 dark:text-white">
+                    {boldText}
+                  </strong>
+                );
+              }
+
+              // Inside this boldPart, split by italic *text*
+              const partsByItalic = boldPart.split(/(\*[^*]+\*)/g);
+              return partsByItalic.map((italicPart, italicIdx) => {
+                if (italicPart.startsWith('*') && italicPart.endsWith('*')) {
+                  const italicText = italicPart.slice(1, -1);
+                  return (
+                    <em key={`italic-${italicIdx}`} className="italic">
+                      {italicText}
+                    </em>
+                  );
+                }
+
+                // Inside this italicPart, split by @Talko AI
+                const partsByMention = italicPart.split(/(@Talko AI)/gi);
+                return partsByMention.map((mentionPart, mentionIdx) => {
+                  if (mentionPart.toLowerCase() === '@talko ai') {
+                    return (
+                      <span 
+                        key={`mention-${mentionIdx}`} 
+                        className="text-blue-500 dark:text-blue-400 font-semibold underline cursor-pointer"
+                      >
+                        {mentionPart}
+                      </span>
+                    );
+                  }
+                  return mentionPart;
+                });
+              });
+            });
+          });
+        };
+
+        if (isListItem) {
+          return (
+            <div key={lineIndex} className={cn("flex items-start gap-2 text-[15px] leading-relaxed", listPadding)}>
+              <span className="text-blue-500 dark:text-blue-400 select-none mt-1 text-[8px]">●</span>
+              <span className="flex-1 text-inherit">{renderInline(content)}</span>
+            </div>
+          );
+        }
+
+        return (
+          <p key={lineIndex} className="text-[15px] leading-relaxed min-h-[1.2em] text-inherit">
+            {renderInline(content)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 interface ChatAreaProps {
   key?: string;
@@ -939,18 +1045,9 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                   />
                 )}
                 {msg.text && msg.type !== 'poll' && (
-                  <p 
-                    style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
-                    className="whitespace-pre-wrap break-words text-[15px] leading-relaxed"
-                  >
-                    {msg.text.split(/(@Talko AI)/gi).map((part, i) => 
-                      part.toLowerCase() === '@talko ai' ? (
-                        <span key={i} className="text-blue-500 dark:text-blue-400 font-medium underline cursor-pointer">{part}</span>
-                      ) : (
-                        part
-                      )
-                    )}
-                  </p>
+                  <div className="text-[15px] leading-relaxed text-inherit">
+                    {renderMarkdown(msg.text)}
+                  </div>
                 )}
                 {msg.type === 'poll' && msg.pollOptions && (
                   <div className="mt-2 space-y-2 w-full min-w-[200px]">
@@ -1071,9 +1168,9 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                   </motion.span>
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed relative">
-                  {aiState.streamText}
-                </p>
+                <div className="relative text-[15px] leading-relaxed">
+                  {renderMarkdown(aiState.streamText)}
+                </div>
               )}
             </div>
           </div>

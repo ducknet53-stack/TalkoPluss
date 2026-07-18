@@ -59,7 +59,14 @@ export function VerifiedBadge({ className = "w-4 h-4" }: VerifiedBadgeProps) {
               </p>
               
               <div className="text-[#8696a0] text-sm mb-8 leading-relaxed">
-                Talko kullanan uygun hesaplar Talko Verified için başvurabilir. Hesabınızın uygun olup olmadığını <button className="text-[#53bdeb] font-semibold hover:underline">buradan</button> kontrol edebilirsiniz.
+                Talko kullanan uygun hesaplar Talko Verified için başvurabilir. Hesabınızın uygun olup olmadığını <button 
+                  type="button"
+                  onClick={() => {
+                    setShowModal(false);
+                    window.dispatchEvent(new CustomEvent('open-profile-modal'));
+                  }}
+                  className="text-[#53bdeb] font-semibold hover:underline"
+                >buradan</button> kontrol edebilirsiniz.
               </div>
 
               <button

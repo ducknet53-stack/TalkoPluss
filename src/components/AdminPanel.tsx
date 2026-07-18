@@ -233,15 +233,31 @@ export default function AdminPanel() {
     try {
       await updateDoc(userRef, {
         isVerified: willVerify,
+        blueTickStatus: willVerify ? "approved" : null,
       });
 
       toast.success(
         willVerify
           ? `${user.username} Talko Verified yapıldı.`
-          : `${user.username} Talko Verified alındı.`,
+          : `${user.username} Talko Verified unvanı kaldırıldı.`,
       );
     } catch (err: any) {
       console.error("Error toggling verified status:", err);
+      toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
+    }
+  };
+
+  const handleRejectBlueTick = async (user: User) => {
+    const userRef = doc(db, "users", user.uid);
+
+    try {
+      await updateDoc(userRef, {
+        blueTickStatus: "rejected",
+      });
+
+      toast.success(`${user.username} mavi tik talebi reddedildi.`);
+    } catch (err: any) {
+      console.error("Error rejecting blue tick status:", err);
       toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
     }
   };
@@ -742,17 +758,38 @@ export default function AdminPanel() {
                               Yasaklı
                             </span>
                           )}
+                          {user.blueTickStatus === 'pending' && (
+                            <div className="mt-1.5 p-1.5 bg-sky-950/40 border border-sky-900/30 rounded-lg max-w-[200px]">
+                              <p className="text-[10px] font-extrabold text-[#38bdf8] uppercase tracking-wider flex items-center gap-1">
+                                <span className="animate-pulse">⏳</span> Mavi Tik Talebi!
+                              </p>
+                              {(user as any).blueTickReason && (
+                                <p className="text-[9px] text-slate-300 italic mt-0.5 line-clamp-2">
+                                  "{(user as any).blueTickReason}"
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
                       <div className="flex flex-col gap-2">
+                        {user.blueTickStatus === 'pending' && !user.isVerified && (
+                          <button
+                            onClick={() => handleRejectBlueTick(user)}
+                            className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-all text-xs font-semibold flex items-center justify-center gap-1"
+                            title="Mavi Tik Talebi Reddet"
+                          >
+                            Talebi Reddet
+                          </button>
+                        )}
                         <button
                           onClick={() => handleToggleVerified(user)}
                           className={cn(
                             "p-2 rounded-lg border transition-all text-xs font-semibold flex items-center justify-center gap-1.5",
                             user.isVerified
                               ? "bg-slate-800/50 border-slate-700/50 text-slate-400 hover:bg-slate-800"
-                              : "bg-amber-500/10 border-amber-500/30 text-amber-500 hover:bg-amber-500/20",
+                              : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20",
                           )}
                           title={
                             user.isVerified
@@ -764,7 +801,7 @@ export default function AdminPanel() {
                             size={14}
                             className={user.isVerified ? "" : "fill-current"}
                           />
-                          {user.isVerified ? "Verified Kaldır" : "Verified Ver"}
+                          {user.isVerified ? "Verified Kaldır" : (user.blueTickStatus === 'pending' ? "Talebi Onayla" : "Verified Ver")}
                         </button>
                         <button
                           onClick={() => handleToggleBan(user)}

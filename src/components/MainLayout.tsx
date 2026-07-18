@@ -19,14 +19,20 @@ export default function MainLayout() {
       }
     };
 
+    const handleOpenProfile = () => {
+      setIsProfileOpen(true);
+    };
+
     window.visualViewport?.addEventListener('resize', handleResize);
     window.visualViewport?.addEventListener('scroll', handleResize);
+    window.addEventListener('open-profile-modal', handleOpenProfile);
     
     handleResize();
 
     return () => {
       window.visualViewport?.removeEventListener('resize', handleResize);
       window.visualViewport?.removeEventListener('scroll', handleResize);
+      window.removeEventListener('open-profile-modal', handleOpenProfile);
     };
   }, []);
 

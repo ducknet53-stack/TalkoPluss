@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { X, Camera, Loader2 } from 'lucide-react';
+import { X, Camera, Loader2, BadgeCheck } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadImage } from '../lib/imgbb';
+import { TALKO_VERIFIED_SVG } from '../lib/assets';
 import toast from 'react-hot-toast';
 
 interface ProfileModalProps {
@@ -20,7 +21,34 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   
+  // Verification states
+  const [blueTickReason, setBlueTickReason] = useState('');
+  const [submittingApp, setSubmittingApp] = useState(false);
+  const [showAppForm, setShowAppForm] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleApplyBlueTick = async () => {
+    if (!currentUser) return;
+    if (!blueTickReason.trim()) {
+      toast.error('Lütfen doğrulanma talebiniz için kısa bir açıklama yazın.');
+      return;
+    }
+    setSubmittingApp(true);
+    try {
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, {
+        blueTickStatus: 'pending',
+        blueTickReason: blueTickReason.trim()
+      });
+      toast.success('Mavi tik başvurunuz alındı!');
+      setShowAppForm(false);
+    } catch (err: any) {
+      toast.error('Başvuru hatası: ' + err.message);
+    } finally {
+      setSubmittingApp(false);
+    }
+  };
 
   const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -103,15 +131,15 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden transition-colors">
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden transition-colors max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Profili Düzenle</h2>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
           {/* Avatar Upload */}
           <div className="flex flex-col items-center">
             <div className="relative group">
@@ -165,6 +193,80 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
                 maxLength={120}
               />
               <p className="text-xs text-right text-gray-400 mt-1">{about.length}/120</p>
+            </div>
+
+            {/* Talko Verified Section */}
+            <div className="border-t border-gray-100 dark:border-gray-800 pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-1.5">
+                <BadgeCheck size={18} className="text-[#38bdf8] fill-[#38bdf8] dark:fill-none" />
+                Talko Verified Durumu
+              </h3>
+
+              {userProfile?.isVerified ? (
+                <div className="bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/50 rounded-xl p-3 flex items-start gap-3">
+                  <div className="w-8 h-8 flex-shrink-0" dangerouslySetInnerHTML={{ __html: TALKO_VERIFIED_SVG }} />
+                  <div>
+                    <h4 className="text-sm font-bold text-blue-900 dark:text-blue-300">Profiliniz Doğrulandı!</h4>
+                    <p className="text-xs text-blue-700/80 dark:text-blue-400/80 mt-0.5">Talko Verified mavi tik rozetiniz profilinizde aktif bir şekilde gösterilmektedir.</p>
+                  </div>
+                </div>
+              ) : userProfile?.blueTickStatus === 'pending' ? (
+                <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/50 rounded-xl p-3 flex items-start gap-3">
+                  <span className="text-xl select-none">⏳</span>
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-950 dark:text-amber-300">Başvurunuz İncelemede</h4>
+                    <p className="text-xs text-amber-800/80 dark:text-amber-400/80 mt-0.5">Mavi tik talebiniz başarıyla alındı ve Talko ekibi tarafından incelenmektedir.</p>
+                  </div>
+                </div>
+              ) : userProfile?.blueTickStatus === 'rejected' && !showAppForm ? (
+                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-xl p-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl select-none">❌</span>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-bold text-gray-800 dark:text-gray-300">Başvuru Onaylanmadı</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Önceki doğrulama başvurunuz onay kriterlerimizi karşılayamadı. Bilgilerinizi zenginleştirerek tekrar deneyebilirsiniz.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAppForm(true)}
+                    className="mt-3 w-full py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold rounded-lg text-xs transition-colors"
+                  >
+                    Yeni Başvuru Yap
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-150 dark:border-slate-800/70 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-3">
+                    Önemli bir kişi, marka veya kuruluşu temsil ediyorsanız veya profilinizi tescillemek istiyorsanız mavi tik talebi gönderebilirsiniz.
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Doğrulanma Gerekçeniz</label>
+                      <textarea
+                        value={blueTickReason}
+                        onChange={(e) => setBlueTickReason(e.target.value)}
+                        placeholder="Neden doğrulanmak istediğinizi yazın (örneğin: İçerik üreticisiyim, profilimin sahte olmadığını kanıtlamak istiyorum vb.)"
+                        className="w-full text-xs px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none h-16 dark:text-white"
+                        maxLength={150}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={submittingApp || !blueTickReason.trim()}
+                      onClick={handleApplyBlueTick}
+                      className="w-full py-2 bg-[#25d366] hover:bg-[#20bd5a] disabled:opacity-40 disabled:hover:bg-[#25d366] text-[#111b21] rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                    >
+                      {submittingApp ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        "Mavi Tik Talebi Gönder"
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
