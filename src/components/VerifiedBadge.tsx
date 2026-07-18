@@ -18,7 +18,7 @@ export function VerifiedBadge({ className = "w-4 h-4" }: VerifiedBadgeProps) {
           e.stopPropagation(); 
           setShowModal(true); 
         }}
-        className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full flex-shrink-0 inline-flex items-center ml-1 ${className}`}
+        className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 flex-shrink-0 inline-flex items-center justify-center ml-1 p-0 border-0 bg-transparent overflow-visible ${className}`}
         dangerouslySetInnerHTML={{ __html: TALKO_VERIFIED_SVG }}
       />
       
@@ -42,7 +42,7 @@ export function VerifiedBadge({ className = "w-4 h-4" }: VerifiedBadgeProps) {
               className="bg-[#121b22] dark:bg-[#121b22] w-full max-w-[360px] rounded-[32px] shadow-2xl overflow-hidden px-6 py-8 flex flex-col items-center text-center"
             >
               <div 
-                className="w-24 h-24 mb-6 drop-shadow-lg"
+                className="w-[88px] h-[88px] mb-6 drop-shadow-lg flex-shrink-0"
                 dangerouslySetInnerHTML={{ __html: TALKO_VERIFIED_SVG }}
               />
               

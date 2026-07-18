@@ -1,7 +1,34 @@
 const fs = require('fs');
+
+const rOuter = 480;
+const rInner = 380;
+const cx = 500;
+const cy = 500;
+const points = 10;
+let path = "";
+
+for(let i=0; i<points*2; i++) {
+    const r = i % 2 === 0 ? rOuter : rInner;
+    const angle = (Math.PI / points) * i - Math.PI / 2;
+    // to round to 2 decimals
+    const x = Math.round((cx + r * Math.cos(angle)) * 100) / 100;
+    const y = Math.round((cy + r * Math.sin(angle)) * 100) / 100;
+    if(i===0) path += `M ${x} ${y} `;
+    else path += `L ${x} ${y} `;
+}
+path += "Z";
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="100%" height="100%">
+  <path d="${path}" fill="#0866FF" />
+  <path d="M420 680 L250 510 L320 440 L420 540 L730 230 L800 300 Z" fill="#FFFFFF" />
+</svg>`;
+
 let content = fs.readFileSync('src/lib/assets.ts', 'utf8');
+
+// Replace the old SVG entirely
 content = content.replace(
-  '<circle cx="500" cy="500" r="450" fill="#F59E0B" />  <path d="M 300 500 L 450 650 L 700 350" stroke="#FFFFFF" stroke-width="120" stroke-linecap="round" stroke-linejoin="round" fill="none" />',
-  '<path d="M 500.00000000000006 20 L 598.3512371389579 132.94818601015402 L 740 84.30780618346944 L 768.7005768508881 231.299423149112 L 915.6921938165306 260 L 867.0518139898459 401.6487628610421 L 980 500 L 867.051813989846 598.3512371389579 L 915.6921938165306 739.9999999999999 L 768.7005768508881 768.700576850888 L 740.0000000000002 915.6921938165304 L 598.3512371389579 867.0518139898459 L 500.00000000000006 980 L 401.64876286104226 867.051813989846 L 260.0000000000001 915.6921938165306 L 231.2994231491121 768.7005768508882 L 84.30780618346955 740.0000000000002 L 132.94818601015413 598.3512371389581 L 20 500.00000000000006 L 132.94818601015402 401.64876286104226 L 84.30780618346927 260.0000000000003 L 231.29942314911187 231.299423149112 L 259.9999999999998 84.30780618346955 L 401.6487628610418 132.94818601015413 Z" fill="#1877F2" />  <path d="M420 680 L250 510 L320 440 L420 540 L730 230 L800 300 Z" fill="#FFFFFF" />'
+  /export const TALKO_VERIFIED_SVG = `<svg[\s\S]*?<\/svg>`;/,
+  `export const TALKO_VERIFIED_SVG = \`${svg}\`;`
 );
+
 fs.writeFileSync('src/lib/assets.ts', content);
