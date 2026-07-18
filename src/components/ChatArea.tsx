@@ -35,6 +35,8 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const [showPollModal, setShowPollModal] = useState(false);
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState([{ id: '1', text: 'Evet' }, { id: '2', text: 'Hayır' }]);
+  
+  const [mentionQuery, setMentionQuery] = useState<{ query: string, start: number, end: number } | null>(null);
 
   const [otherUserOnline, setOtherUserOnline] = useState(false);
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<number | null>(null);
@@ -586,18 +588,20 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         ...unreadUpdates
       });
       
-      if (isAiChat) {
+      if (isAiChat || (liveChat.isGroup && messageText.toLowerCase().includes('@talko ai'))) {
         setAiState({ isGenerating: true, isThinking: true, streamText: '' });
         try {
-          const history = messages.map(m => ({
+          const history = messages.slice(-15).map(m => ({
             role: m.senderId === TALKO_AI_USER_ID ? 'model' : 'user',
             text: m.text || ''
           }));
           
+          const cleanMessage = isAiChat ? messageText : messageText.replace(/@talko ai/gi, '').trim();
+
           const response = await fetch('/api/ai/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: messageText, history })
+            body: JSON.stringify({ message: cleanMessage || 'Bana yardımcı ol.', history })
           });
           
           if (!response.ok) {
@@ -656,11 +660,18 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                imageUrl: null,
                timestamp: aiNow
             });
-            await updateDoc(chatRef, {
-               lastMessage: aiFullText,
-               lastMessageTimestamp: aiNow,
-               updatedAt: aiNow,
-               [`unreadCount.${currentUser.uid}`]: increment(1)
+            const aiUnreadUpdates: Record<string, any> = {};
+            liveChat.participants.forEach(p => {
+              if (p !== currentUser.uid) {
+                aiUnreadUpdates[`unreadCount.${p}`] = increment(1);
+              }
+            });
+
+            await updateDoc(chatRef, { 
+              lastMessage: aiFullText,
+              lastMessageTimestamp: aiNow,
+              updatedAt: aiNow,
+              ...aiUnreadUpdates
             });
           } else {
             throw new Error("AI returned empty response");
@@ -870,8 +881,8 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
             : otherUserDetails?.photoURL;
 
           return (
+            <div key={msg.id} className="flex flex-col w-full min-w-0">
             <div 
-              key={msg.id} 
               className={cn(
                 "flex w-full min-w-0 px-0.5", 
                 isMine ? "justify-end" : "justify-start", 
@@ -932,7 +943,13 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                     style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
                     className="whitespace-pre-wrap break-words text-[15px] leading-relaxed"
                   >
-                    {msg.text}
+                    {msg.text.split(/(@Talko AI)/gi).map((part, i) => 
+                      part.toLowerCase() === '@talko ai' ? (
+                        <span key={i} className="text-blue-500 dark:text-blue-400 font-medium underline cursor-pointer">{part}</span>
+                      ) : (
+                        part
+                      )
+                    )}
                   </p>
                 )}
                 {msg.type === 'poll' && msg.pollOptions && (
@@ -995,6 +1012,13 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                 </span>
               </div>
             </div>
+            
+            {msg.senderId === TALKO_AI_USER_ID && (!aiState.isGenerating || idx !== messages.length - 1) && (
+              <div className="w-full pl-10 text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 select-none text-left">
+                Talko AI yanlış yanıtlar verebilir.
+              </div>
+            )}
+          </div>
           );
         })}
         
@@ -1013,7 +1037,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           </div>
         )}
 
-        {isAiChat && aiState.isGenerating && (
+        {(isAiChat || liveChat.isGroup) && aiState.isGenerating && (
           <div className="flex w-full min-w-0 px-0.5 justify-start">
             <div className={cn("w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mr-2 mt-auto bg-gray-100 dark:bg-gray-800 transition-transform duration-1000", (aiState.isThinking || aiState.isGenerating) && "animate-breathe")}>
               <img src={TALKO_AI_LOGO_DATA_URL} alt="Talko AI" className="w-full h-full object-cover" />
@@ -1081,6 +1105,31 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
             onSubmit={(e) => { e.preventDefault(); handleSendMessage(inputText); }}
             className="flex items-end gap-2 relative w-full min-w-0"
           >
+            {mentionQuery && (
+              <div className="absolute bottom-full left-0 mb-2 w-64 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden z-50">
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-left"
+                  onClick={() => {
+                    const newText = inputText.substring(0, mentionQuery.start) + '@Talko AI ' + inputText.substring(mentionQuery.end);
+                    setInputText(newText);
+                    setMentionQuery(null);
+                    setTimeout(() => {
+                      textareaRef.current?.focus();
+                    }, 50);
+                  }}
+                >
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-gray-100 dark:bg-gray-800">
+                    <img src={TALKO_AI_LOGO_DATA_URL} alt="Talko AI" className="w-full h-full object-cover" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">Talko AI</p>
+                    <p className="text-xs text-gray-500">Resmî Yapay Zekâ Asistanı</p>
+                  </div>
+                </button>
+              </div>
+            )}
+            
             {showEmojiPicker && (
               <div className="absolute bottom-full left-0 mb-2 z-50 shadow-2xl rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800 max-w-full">
                 <EmojiPicker onEmojiClick={onEmojiClick} autoFocusSearch={false} theme={theme} />
@@ -1129,6 +1178,17 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                 const val = e.target.value;
                 setInputText(val);
                 handleTyping(val);
+                
+                if (liveChat.isGroup) {
+                  const cursorPos = e.target.selectionStart;
+                  const textBeforeCursor = val.slice(0, cursorPos);
+                  const match = textBeforeCursor.match(/@([a-zA-Z0-9_]*)$/);
+                  if (match && "Talko AI".toLowerCase().startsWith(match[1].toLowerCase())) {
+                    setMentionQuery({ query: match[1], start: match.index!, end: cursorPos });
+                  } else {
+                    setMentionQuery(null);
+                  }
+                }
               }}
               onFocus={() => {
                 setTimeout(() => {

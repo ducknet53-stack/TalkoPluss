@@ -13,20 +13,21 @@ export const TALKO_AI_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
       <stop offset="0%" stop-color="#2563EB" />
       <stop offset="100%" stop-color="#7C3AED" />
     </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="4" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
   </defs>
-  
   <rect width="100" height="100" fill="url(#aiBg)" />
-  
-  <!-- Sleek 4-pointed star / spark -->
-  <path d="M 50 15 C 50 45 45 50 15 50 C 45 50 50 55 50 85 C 50 55 55 50 85 50 C 55 50 50 45 50 15 Z" fill="#FFFFFF" filter="url(#glow)"/>
-  <path d="M 50 15 C 50 45 45 50 15 50 C 45 50 50 55 50 85 C 50 55 55 50 85 50 C 55 50 50 45 50 15 Z" fill="#FFFFFF"/>
-  
-  <path d="M 75 25 C 75 35 72 38 62 38 C 72 38 75 41 75 51 C 75 41 78 38 88 38 C 78 38 75 35 75 25 Z" fill="#FFFFFF" opacity="0.8"/>
-  <path d="M 30 70 C 30 77 28 79 21 79 C 28 79 30 81 30 88 C 30 81 32 79 39 79 C 32 79 30 77 30 70 Z" fill="#FFFFFF" opacity="0.6"/>
+  <!-- Robot Head -->
+  <rect x="25" y="40" width="50" height="40" rx="8" fill="#FFFFFF" />
+  <!-- Helmet/Hat -->
+  <path d="M 15 45 C 15 25 85 25 85 45 Z" fill="#FACC15" />
+  <rect x="10" y="45" width="80" height="5" rx="2" fill="#EAB308" />
+  <!-- Antenna -->
+  <rect x="47" y="15" width="6" height="15" fill="#CBD5E1" />
+  <circle cx="50" cy="12" r="6" fill="#F87171" />
+  <!-- Eyes -->
+  <circle cx="40" cy="55" r="5" fill="#1E293B" />
+  <circle cx="60" cy="55" r="5" fill="#1E293B" />
+  <!-- Mouth -->
+  <rect x="35" y="68" width="30" height="4" rx="2" fill="#1E293B" />
 </svg>`;
 export const TALKO_AI_LOGO_DATA_URL = `data:image/svg+xml;base64,${btoa(TALKO_AI_SVG)}`;
 
