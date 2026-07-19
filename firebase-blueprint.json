@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account and profile data including notification settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique identifier for the user" },
+        "username": { "type": "string", "description": "Display username" },
+        "usernameLower": { "type": "string", "description": "Lowercase username for search and uniqueness" },
+        "email": { "type": "string", "description": "Email address" },
+        "photoURL": { "type": "string", "description": "Avatar image URL" },
+        "about": { "type": "string", "description": "User's bio / about section" },
+        "isOnline": { "type": "boolean", "description": "Whether user is online" },
+        "lastSeen": { "type": "number", "description": "Last seen epoch timestamp" },
+        "createdAt": { "type": "number", "description": "Account creation epoch timestamp" },
+        "isBanned": { "type": "boolean", "description": "Banned state" },
+        "bannedAt": { "type": "number", "description": "Timestamp when banned" },
+        "isVerified": { "type": "boolean", "description": "Whether profile is verified (blue tick)" },
+        "isAdmin": { "type": "boolean", "description": "Whether user is an administrator" },
+        "blueTickStatus": { "type": "string", "description": "Status of mavi tik application" },
+        "blueTickReason": { "type": "string", "description": "Reason provided for mavi tik application" },
+        "notificationSettings": {
+          "type": "object",
+          "description": "User notification preferences",
+          "properties": {
+            "messages": { "type": "boolean" },
+            "groups": { "type": "boolean" },
+            "events": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["uid", "username", "usernameLower", "email"]
+    },
+    "FcmToken": {
+      "title": "FCM Device Token",
+      "description": "Firebase Cloud Messaging token registered for a user device",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string", "description": "FCM Registration token" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "platform": { "type": "string", "description": "Operating system / browser platform name" },
+        "userAgent": { "type": "string", "description": "User agent string of the device" },
+        "createdAt": { "type": "number", "description": "Registration epoch timestamp" },
+        "updatedAt": { "type": "number", "description": "Last updated epoch timestamp" }
+      },
+      "required": ["token", "userId"]
+    },
+    "Chat": {
+      "title": "Chat Room",
+      "description": "Conversation between two or more users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "participantDetails": { "type": "object" },
+        "lastMessage": { "type": "string" },
+        "lastMessageTimestamp": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "isGroup": { "type": "boolean" },
+        "groupName": { "type": "string" },
+        "groupDescription": { "type": "string" },
+        "groupEmoji": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "unreadCount": { "type": "object" },
+        "eventState": { "type": "object" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/users/{userId}/tokens/{tokenId}": {
+      "schema": "FcmToken",
+      "description": "User FCM messaging tokens"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Sohbet odaları"
+    }
+  }
+}

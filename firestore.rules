@@ -39,6 +39,10 @@ service cloud.firestore {
         userId == 'system_talko_destek' || 
         userId == 'system_talko_ai'
       );
+      
+      match /tokens/{token} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
     }
     
     match /stories/{storyId} {

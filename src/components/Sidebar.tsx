@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, getDocs, setDoc, doc, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { LogOut, User as UserIcon, Search, MessageSquarePlus, Moon, Sun, Users } from 'lucide-react';
+import { LogOut, User as UserIcon, Search, MessageSquarePlus, Moon, Sun, Users, Bell } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -11,6 +11,7 @@ import { SYSTEM_USER_ID, TALKO_AI_USER_ID, ensureSystemAccount, sendWelcomeMessa
 import { TALKO_LOGO_DATA_URL, TALKO_AI_LOGO_DATA_URL } from '../lib/assets';
 import { cn } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
+import { requestNotificationPermission } from '../lib/notifications';
 import StoriesBar from './StoriesBar';
 import CreateGroupModal from './CreateGroupModal';
 import { AnimatePresence } from 'motion/react';
@@ -28,6 +29,32 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
   const [allUsers, setAllUsers] = useState<User[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
+
+  const prevUnreadCountsRef = React.useRef<Record<string, number>>({});
+  const isInitialLoadRef = React.useRef(true);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const isDismissed = localStorage.getItem('talko-notifications-prompt-dismissed') === 'true';
+      if (Notification.permission === 'default' && !isDismissed) {
+        setShowNotificationPrompt(true);
+      }
+    }
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    if (!currentUser) return;
+    const granted = await requestNotificationPermission(currentUser.uid);
+    if (granted) {
+      setShowNotificationPrompt(false);
+    }
+  };
+
+  const handleDismissNotifications = () => {
+    localStorage.setItem('talko-notifications-prompt-dismissed', 'true');
+    setShowNotificationPrompt(false);
+  };
 
   // 1. Subscribe to chats in real-time
   useEffect(() => {
@@ -52,6 +79,64 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
         
         return b.updatedAt - a.updatedAt;
       });
+
+      // Track unread changes to trigger browser-level notifications
+      const unreadCounts: Record<string, number> = {};
+      fetchedChats.forEach(chat => {
+        unreadCounts[chat.id] = chat.unreadCount?.[currentUser.uid] || 0;
+      });
+
+      if (!isInitialLoadRef.current) {
+        fetchedChats.forEach(chat => {
+          const prevUnread = prevUnreadCountsRef.current[chat.id] || 0;
+          const currentUnread = unreadCounts[chat.id] || 0;
+
+          if (currentUnread > prevUnread) {
+            // Unread count increased - check category preferences
+            const settings = userProfile?.notificationSettings;
+            const messagesEnabled = settings?.messages !== false;
+            const groupsEnabled = settings?.groups !== false;
+            const eventsEnabled = settings?.events !== false;
+
+            const isGroup = chat.isGroup === true;
+            const isEvent = chat.lastMessage === '🎉 Etkinlik' || (chat.eventState?.isActive === true && chat.lastMessageTimestamp > Date.now() - 5000);
+
+            let shouldNotify = false;
+            if (isEvent && eventsEnabled) {
+              shouldNotify = true;
+            } else if (isGroup && groupsEnabled) {
+              shouldNotify = true;
+            } else if (!isGroup && !isEvent && messagesEnabled) {
+              shouldNotify = true;
+            }
+
+            if (shouldNotify && document.visibilityState === 'hidden') {
+              let title = "Talko";
+              let photo = "";
+              if (chat.isGroup) {
+                title = `${chat.groupEmoji || '💬'} ${chat.groupName}`;
+              } else {
+                const otherUid = chat.participants.find(p => p !== currentUser.uid);
+                const otherDetails = chat.participantDetails?.[otherUid || ''];
+                title = otherDetails?.username || "Yeni Mesaj";
+                photo = otherDetails?.photoURL || "";
+              }
+
+              // Display notification using the background-safe utility
+              import('../lib/notifications').then(({ showLocalNotification }) => {
+                showLocalNotification(title, {
+                  body: chat.lastMessage || "Yeni bir mesajınız var",
+                  icon: photo || undefined,
+                  chatId: chat.id
+                });
+              });
+            }
+          }
+        });
+      }
+
+      prevUnreadCountsRef.current = unreadCounts;
+      isInitialLoadRef.current = false;
 
       setChats(fetchedChats);
     }, (err) => {
@@ -413,6 +498,37 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
           />
         </div>
       </div>
+
+      {/* Push Notification Banner */}
+      {showNotificationPrompt && (
+        <div className="px-4 pb-2">
+          <div className="bg-blue-50/75 dark:bg-blue-950/25 border border-blue-100/60 dark:border-blue-900/40 rounded-2xl p-4 flex flex-col gap-3 relative overflow-hidden transition-colors">
+            <div className="flex gap-3">
+              <div className="w-9 h-9 rounded-full bg-blue-100/80 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 flex-shrink-0">
+                <Bell size={18} className="animate-bounce" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-gray-900 dark:text-white">🔔 Bildirimleri Aç</h4>
+                <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed mt-0.5">Yeni mesajları ve önemli etkinlikleri anında öğren.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={handleDismissNotifications}
+                className="px-3 py-1.5 text-[11px] font-semibold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition-all cursor-pointer"
+              >
+                ⏳ Daha Sonra
+              </button>
+              <button
+                onClick={handleEnableNotifications}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold rounded-lg transition-all shadow-sm hover:shadow cursor-pointer"
+              >
+                ✅ Bildirimleri Aç
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stories Bar */}
       <StoriesBar />

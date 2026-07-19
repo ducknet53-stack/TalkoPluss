@@ -23,9 +23,30 @@ export default function MainLayout() {
       setIsProfileOpen(true);
     };
 
+    const handleOpenChat = async (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const chatId = customEvent.detail?.chatId;
+      if (chatId) {
+        const { doc, getDoc } = await import('firebase/firestore');
+        const { db } = await import('../lib/firebase');
+        try {
+          const chatSnap = await getDoc(doc(db, 'chats', chatId));
+          if (chatSnap.exists()) {
+            setActiveChat(chatSnap.data() as Chat);
+            if (window.innerWidth < 768) {
+              setIsSidebarOpen(false);
+            }
+          }
+        } catch (err) {
+          console.error("Error fetching chat for notification navigation:", err);
+        }
+      }
+    };
+
     window.visualViewport?.addEventListener('resize', handleResize);
     window.visualViewport?.addEventListener('scroll', handleResize);
     window.addEventListener('open-profile-modal', handleOpenProfile);
+    window.addEventListener('open-chat', handleOpenChat as EventListener);
     
     handleResize();
 
@@ -33,6 +54,7 @@ export default function MainLayout() {
       window.visualViewport?.removeEventListener('resize', handleResize);
       window.visualViewport?.removeEventListener('scroll', handleResize);
       window.removeEventListener('open-profile-modal', handleOpenProfile);
+      window.removeEventListener('open-chat', handleOpenChat as EventListener);
     };
   }, []);
 

@@ -1,11 +1,12 @@
 import { useState, useRef } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { X, Camera, Loader2, BadgeCheck } from 'lucide-react';
+import { X, Camera, Loader2, BadgeCheck, Bell } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadImage } from '../lib/imgbb';
 import { TALKO_VERIFIED_SVG } from '../lib/assets';
+import { requestNotificationPermission } from '../lib/notifications';
 import toast from 'react-hot-toast';
 
 interface ProfileModalProps {
@@ -21,6 +22,12 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   
+  // Notification states
+  const [msgNotif, setMsgNotif] = useState(userProfile?.notificationSettings?.messages !== false);
+  const [groupNotif, setGroupNotif] = useState(userProfile?.notificationSettings?.groups !== false);
+  const [eventNotif, setEventNotif] = useState(userProfile?.notificationSettings?.events !== false);
+  const [requestingNativePerm, setRequestingNativePerm] = useState(false);
+
   // Verification states
   const [blueTickReason, setBlueTickReason] = useState('');
   const [submittingApp, setSubmittingApp] = useState(false);
@@ -117,7 +124,12 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
         username,
         usernameLower: username.toLowerCase(),
         about,
-        photoURL
+        photoURL,
+        notificationSettings: {
+          messages: msgNotif,
+          groups: groupNotif,
+          events: eventNotif
+        }
       });
 
       toast.success('Profil güncellendi!');
@@ -193,6 +205,72 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
                 maxLength={120}
               />
               <p className="text-xs text-right text-gray-400 mt-1">{about.length}/120</p>
+            </div>
+
+            {/* Bildirim Ayarları Section */}
+            <div className="border-t border-gray-100 dark:border-gray-800 pt-4 mt-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-1.5">
+                <Bell size={18} className="text-blue-500" />
+                🔔 Bildirim Ayarları
+              </h3>
+              
+              <div className="space-y-2 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between py-1">
+                  <div>
+                    <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block">Mesaj Bildirimleri</span>
+                    <span className="text-[10px] text-gray-500">Bire bir sohbet mesajları</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={msgNotif}
+                    onChange={(e) => setMsgNotif(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between py-1 border-t border-gray-100 dark:border-gray-800">
+                  <div>
+                    <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block">Grup Bildirimleri</span>
+                    <span className="text-[10px] text-gray-500">Grup sohbeti mesajları</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={groupNotif}
+                    onChange={(e) => setGroupNotif(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between py-1 border-t border-gray-100 dark:border-gray-800">
+                  <div>
+                    <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 block">Etkinlik Bildirimleri</span>
+                    <span className="text-[10px] text-gray-500">Özel Talko eventleri ve davetler</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={eventNotif}
+                    onChange={(e) => setEventNotif(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!currentUser) return;
+                    setRequestingNativePerm(true);
+                    await requestNotificationPermission(currentUser.uid);
+                    setRequestingNativePerm(false);
+                  }}
+                  disabled={requestingNativePerm}
+                  className="w-full mt-1 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/30 dark:hover:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-1"
+                >
+                  {requestingNativePerm ? <Loader2 size={12} className="animate-spin" /> : <Bell size={12} />}
+                  Tarayıcı Bildirim İznini Etkinleştir
+                </button>
+              )}
             </div>
 
             {/* Talko Verified Section */}

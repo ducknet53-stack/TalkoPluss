@@ -1,3 +1,9 @@
+export interface NotificationSettings {
+  messages: boolean;
+  groups: boolean;
+  events: boolean;
+}
+
 export interface User {
   uid: string;
   username: string;
@@ -15,6 +21,7 @@ export interface User {
   verificationStatus?: 'pending' | 'approved' | 'rejected' | null;
   blueTickStatus?: 'pending' | 'approved' | 'rejected' | null;
   blockedUsers?: string[];
+  notificationSettings?: NotificationSettings;
 }
 
 export interface EventState {

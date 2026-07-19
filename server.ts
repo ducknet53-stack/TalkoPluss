@@ -4,10 +4,134 @@ import OpenAI from "openai";
 import cors from "cors";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
+import admin from "firebase-admin";
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+// Lazy-initialize Firebase Admin SDK
+let adminApp: any = null;
+let dbAdmin: any = null;
+let messagingAdmin: any = null;
+
+function getFirebaseAdmin() {
+  if (!adminApp) {
+    try {
+      const adminApps = (admin as any).apps;
+      if (adminApps && adminApps.length > 0) {
+        adminApp = adminApps[0];
+      } else {
+        const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+        if (saJson) {
+          try {
+            adminApp = admin.initializeApp({
+              credential: (admin as any).credential.cert(JSON.parse(saJson))
+            });
+          } catch (e: any) {
+            console.error("[FIREBASE ADMIN] Failed to initialize with service account JSON, trying default:", e.message);
+            adminApp = admin.initializeApp();
+          }
+        } else {
+          adminApp = admin.initializeApp();
+        }
+      }
+      dbAdmin = adminApp.firestore();
+      messagingAdmin = adminApp.messaging();
+      console.log("[FIREBASE ADMIN] SDK loaded successfully.");
+    } catch (err: any) {
+      console.warn("[FIREBASE ADMIN] Admin SDK initialization bypassed (No default credentials). Fallback local triggers are operational. Detail:", err.message);
+    }
+  }
+  return { db: dbAdmin, messaging: messagingAdmin };
+}
+
+// Push notification send endpoint
+app.post("/api/notifications/send", async (req, res) => {
+  const { chatId, senderId, senderName, text, participants, isGroup, groupName } = req.body;
+  
+  if (!chatId || !senderId || !text || !participants || !Array.isArray(participants)) {
+    return res.status(400).json({ error: "Missing parameters" });
+  }
+
+  try {
+    const { db, messaging } = getFirebaseAdmin();
+    
+    if (!db || !messaging) {
+      return res.json({ success: true, message: "Local notification fallback used" });
+    }
+
+    const targetUserIds = participants.filter(uid => uid !== senderId);
+    if (targetUserIds.length === 0) {
+      return res.json({ success: true, message: "No recipients to notify" });
+    }
+
+    const fcmTokens: string[] = [];
+
+    for (const userId of targetUserIds) {
+      // Check user preferences from Firestore before sending
+      const userDoc = await db.collection("users").doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const settings = userData?.notificationSettings;
+        const messagesEnabled = settings?.messages !== false;
+        const groupsEnabled = settings?.groups !== false;
+        
+        if (isGroup && !groupsEnabled) continue;
+        if (!isGroup && !messagesEnabled) continue;
+      }
+
+      // Fetch active device tokens
+      const tokensSnap = await db.collection("users").doc(userId).collection("tokens").get();
+      tokensSnap.forEach(doc => {
+        const data = doc.data();
+        if (data && data.token) {
+          fcmTokens.push(data.token);
+        }
+      });
+    }
+
+    if (fcmTokens.length === 0) {
+      return res.json({ success: true, message: "No registered device tokens found" });
+    }
+
+    const title = isGroup ? `💬 ${groupName || "Grup Mesajı"}` : senderName || "Yeni Mesaj";
+    const body = isGroup ? `${senderName}: ${text}` : text;
+
+    const response = await messaging.sendEachForMulticast({
+      tokens: fcmTokens,
+      notification: {
+        title,
+        body,
+      },
+      data: {
+        chatId,
+        click_action: "/",
+      },
+    });
+
+    // Automatically clean up failed/invalid registration tokens from Firestore
+    if (response.failureCount > 0) {
+      response.responses.forEach(async (resp, idx) => {
+        if (!resp.success) {
+          const staleToken = fcmTokens[idx];
+          if (staleToken) {
+            for (const userId of targetUserIds) {
+              try {
+                await db.collection("users").doc(userId).collection("tokens").doc(staleToken).delete();
+              } catch (e) {}
+            }
+          }
+        }
+      });
+    }
+
+    return res.json({ success: true, sentCount: response.successCount });
+  } catch (err: any) {
+    console.error("[NOTIFICATIONS API ERROR]", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // Initialize Gemini Client
 const geminiClient = new GoogleGenAI({
@@ -30,71 +154,13 @@ app.post("/api/ai/moderate", async (req, res) => {
     console.log(`[MODERATION REQUEST] Content to check: "${text}"`);
 
     let result = null;
-    let geminiError = null;
+    let openAiError = null;
 
-    // 1. Try Gemini Moderation
-    try {
-      console.log("[MODERATION] Attempting Gemini API (gemini-3.5-flash)...");
-      const response = await geminiClient.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: [{
-          role: "user",
-          parts: [{ 
-            text: `Aşağıdaki Türkçe mesajı bir sohbet uygulaması için moderasyon kontrolünden geçir.
-Mesaj: "${text}"
-
-Görev:
-1. Küfür, hakaret, aşağılama, tehdit, taciz veya ağır argo içeriyor mu? (Özellikle a.mk, @mk, a m k, p!ç, o.ç, s*k gibi harf değiştirme, gizleme, sembol kullanma, aralara boşluk, nokta veya işaret yerleştirme yöntemlerine karşı duyarlı ol.)
-2. Sadece kelime listesi eşleştirmesi yapma. Anlam ve bağlam analizi gerçekleştir. Mesajın asıl niyetini ve anlamını kavra.
-3. Normal ve temiz bir sohbet mesajıysa (argo/alaycı kelimeler içerse bile hakaret veya küfür içermiyorsa, örneğin "Merhaba", "Bugün nasılsın?", "Talko çok güzel olmuş" gibi ifadeler) kesinlikle uygun kabul et (isAppropriate: true).
-4. Çıktı formatı olarak kesinlikle şu JSON şemasını döndür:
-{
-  "isAppropriate": boolean, // Uygunsa true, küfür/hakaret/uygunsuz ise false
-  "category": string, // "profanity" (küfür/argo), "harassment" (taciz/aşağılama), "threat" (tehdit), "spam" (gereksiz tekrar), veya sorun yoksa "clean"
-  "reason": string // Neden uygunsuz bulunduğuna dair kısa Türkçe açıklama
-}`
-          }]
-        }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              isAppropriate: {
-                type: Type.BOOLEAN,
-                description: "Mesaj uygunsa true, uygunsuzsa false (küfür/hakaret vb.)"
-              },
-              category: {
-                type: Type.STRING,
-                description: "İhlal varsa kategorisi: 'profanity', 'harassment', 'threat', 'spam'. Sorun yoksa 'clean'"
-              },
-              reason: {
-                type: Type.STRING,
-                description: "Neden uygunsuz olduğuna dair çok kısa bir açıklama (uygunsa boş bırak)"
-              }
-            },
-            required: ["isAppropriate", "category", "reason"]
-          }
-        }
-      });
-
-      const responseText = response.text || "{}";
-      console.log("[MODERATION] Gemini API Response received successfully:", responseText);
-      result = JSON.parse(responseText);
-    } catch (err: any) {
-      geminiError = err;
-      console.error("[MODERATION] Gemini API failed. Error detail:", err.message || err);
-    }
-
-    // 2. Try OpenAI Fallback if Gemini failed
-    if (!result) {
-      console.log("[MODERATION] Falling back to OpenAI (gpt-4o)...");
+    // 1. Try OpenAI/GitHub Models (gpt-4o) first
+    const token = process.env.GITHUB_TOKEN;
+    if (token) {
+      console.log("[MODERATION] Attempting primary model: OpenAI (gpt-4o) via GITHUB_TOKEN...");
       try {
-        const token = process.env.GITHUB_TOKEN;
-        if (!token) {
-          throw new Error("GITHUB_TOKEN is not set for fallback OpenAI moderation.");
-        }
-
         const openai = new OpenAI({
           baseURL: "https://models.inference.ai.azure.com",
           apiKey: token,
@@ -131,8 +197,64 @@ Görev:
         console.log("[MODERATION] OpenAI (gpt-4o) Response received successfully:", responseText);
         result = JSON.parse(responseText);
       } catch (err: any) {
-        console.error("[MODERATION] OpenAI Fallback also failed. Error detail:", err.message || err);
-        throw new Error(`AI Moderation service completely offline. Gemini Error: ${geminiError?.message || geminiError}. OpenAI Error: ${err.message}`);
+        openAiError = err;
+        console.error("[MODERATION] Primary OpenAI moderation failed, falling back to Gemini. Detail:", err.message || err);
+      }
+    }
+
+    // 2. Fall back to Gemini if OpenAI failed or GITHUB_TOKEN is not defined
+    if (!result) {
+      console.log("[MODERATION] Attempting Gemini API (gemini-3.5-flash)...");
+      try {
+        const response = await geminiClient.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: [{
+            role: "user",
+            parts: [{ 
+              text: `Aşağıdaki Türkçe mesajı bir sohbet uygulaması için moderasyon kontrolünden geçir.
+Mesaj: "${text}"
+
+Görev:
+1. Küfür, hakaret, aşağılama, tehdit, taciz veya ağır argo içeriyor mu? (Özellikle a.mk, @mk, a m k, p!ç, o.ç, s*k gibi harf değiştirme, gizleme, sembol kullanma, aralara boşluk, nokta veya işaret yerleştirme yöntemlerine karşı duyarlı ol.)
+2. Sadece kelime listesi eşleştirmesi yapma. Anlam ve bağlam analizi gerçekleştir. Mesajın asıl niyetini ve anlamını kavra.
+3. Normal ve temiz bir sohbet mesajıysa (argo/alaycı kelimeler içerse bile hakaret veya küfür içermiyorsa, örneğin "Merhaba", "Bugün nasılsın?", "Talko çok güzel olmuş" gibi ifadeler) kesinlikle uygun kabul et (isAppropriate: true).
+4. Çıktı formatı olarak kesinlikle şu JSON şemasını döndür:
+{
+  "isAppropriate": boolean, // Uygunsa true, küfür/hakaret/uygunsuz ise false
+  "category": string, // "profanity" (küfür/argo), "harassment" (taciz/aşağılama), "threat" (tehdit), "spam" (gereksiz tekrar), veya sorun yoksa "clean"
+  "reason": string // Neden uygunsuz bulunduğuna dair kısa Türkçe açıklama
+}`
+            }]
+          }],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                isAppropriate: {
+                  type: Type.BOOLEAN,
+                  description: "Mesaj uygunsa true, uygunsuzsa false (küfür/hakaret vb.)"
+                },
+                category: {
+                  type: Type.STRING,
+                  description: "İhlal varsa kategorisi: 'profanity', 'harassment', 'threat', 'spam'. Sorun yoksa 'clean'"
+                },
+                reason: {
+                  type: Type.STRING,
+                  description: "Neden uygunsuz olduğuna dair çok kısa bir açıklama (uygunsa boş bırak)"
+                }
+              },
+              required: ["isAppropriate", "category", "reason"]
+            }
+          }
+        });
+
+        const responseText = response.text || "{}";
+        console.log("[MODERATION] Gemini API Response received successfully:", responseText);
+        result = JSON.parse(responseText);
+      } catch (err: any) {
+        console.error("[MODERATION] Gemini API also failed. Error detail:", err.message || err);
+        throw new Error(`AI Moderation service completely offline. OpenAI Error: ${openAiError?.message || openAiError}. Gemini Error: ${err.message}`);
       }
     }
 

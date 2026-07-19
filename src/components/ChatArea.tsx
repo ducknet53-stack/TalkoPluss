@@ -180,6 +180,25 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevMessagesLengthRef = useRef(0);
 
+  const dispatchPushNotification = (text: string) => {
+    if (!currentUser || !liveChat) return;
+    fetch('/api/notifications/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        chatId: liveChat.id,
+        senderId: currentUser.uid,
+        senderName: userProfile?.username || currentUser.displayName || "Kullanıcı",
+        text,
+        participants: liveChat.participants,
+        isGroup: liveChat.isGroup === true,
+        groupName: liveChat.groupName || ""
+      })
+    }).catch(err => console.error("Failed to send push notification:", err));
+  };
+
   const otherUserId = chat?.participants?.find(id => id !== currentUser?.uid) || currentUser?.uid;
   const isSystemChat = otherUserId === SYSTEM_USER_ID;
   const isAiChat = otherUserId === TALKO_AI_USER_ID;
@@ -604,6 +623,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       });
       
       playSendSound();
+      dispatchPushNotification('📊 Anket: ' + pollQuestion.trim());
 
       setShowPollModal(false);
       setPollQuestion('');
@@ -676,6 +696,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       updatedAt: Date.now(),
       ...unreadUpdates
     });
+    dispatchPushNotification(isEventCard ? '🎉 Etkinlik' : text);
   };
 
   const startStage1 = async () => {
@@ -1045,6 +1066,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         });
         
         playSendSound();
+        dispatchPushNotification(messageText || (imageUrl ? '📷 Görsel' : ''));
 
         // Remove from optimistic UI state since Firestore has successfully received and persisted it
         setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
