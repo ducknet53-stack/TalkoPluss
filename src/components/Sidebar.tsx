@@ -62,6 +62,26 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
     return () => unsubscribe();
   }, [currentUser]);
 
+  // Delivery receipts logic
+  useEffect(() => {
+    if (!currentUser || !chats) return;
+    
+    chats.forEach(chat => {
+      // Don't update delivery for system chat since it's one-way
+      if (chat.participants.includes(SYSTEM_USER_ID)) return;
+      
+      const myLastDelivered = chat.lastDelivered?.[currentUser.uid] || 0;
+      const lastMsgTime = chat.lastMessageTimestamp || 0;
+      
+      if (lastMsgTime > myLastDelivered) {
+        const chatRef = doc(db, 'chats', chat.id);
+        updateDoc(chatRef, {
+          [`lastDelivered.${currentUser.uid}`]: lastMsgTime
+        }).catch(err => console.error("Delivery update error:", err));
+      }
+    });
+  }, [chats, currentUser]);
+
   // 2. Subscribe to all registered users in real-time (instant update of online/offline status)
   useEffect(() => {
     if (!currentUser) return;

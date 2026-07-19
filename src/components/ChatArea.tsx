@@ -846,7 +846,9 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       if (otherParticipantId) {
         const otherLastRead = liveChat.lastRead?.[otherParticipantId] || 0;
         isRead = otherLastRead >= msg.timestamp;
-        isDelivered = isRead || otherUserOnline || (otherUserLastSeen || 0) >= msg.timestamp;
+        
+        const otherLastDelivered = liveChat.lastDelivered?.[otherParticipantId] || 0;
+        isDelivered = isRead || otherLastDelivered >= msg.timestamp || otherUserOnline || (otherUserLastSeen || 0) >= msg.timestamp;
       }
     }
 

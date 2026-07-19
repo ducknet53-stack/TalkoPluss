@@ -31,6 +31,7 @@ export interface Chat {
   groupEmoji?: string;
   createdBy?: string;
   lastRead?: Record<string, number>;
+  lastDelivered?: Record<string, number>;
   unreadCount?: Record<string, number>;
 }
 
