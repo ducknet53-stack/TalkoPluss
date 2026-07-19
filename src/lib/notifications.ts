@@ -1,4 +1,4 @@
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { app, db } from './firebase';
 import { collection, doc, setDoc, deleteDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { User } from '../types';
@@ -14,13 +14,21 @@ export interface NotificationSettings {
 export const VAPID_KEY = import.meta.env.VITE_FCM_VAPID_KEY || "BHzZz_Replace_With_Your_Actual_VAPID_Key_From_Firebase_Console";
 
 let messaging: any = null;
-try {
-  // FCM messaging will only initialize if supported by the browser environment (e.g. not in restrictive iframe)
-  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-    messaging = getMessaging(app);
-  }
-} catch (err) {
-  console.warn("Firebase Cloud Messaging is not fully supported in this context (e.g., iframe sandboxing or unsupported browser). Falling back to HTML5 Web Notification API.", err);
+
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  isSupported().then((supported) => {
+    if (supported) {
+      try {
+        messaging = getMessaging(app);
+      } catch (err) {
+        console.warn("Firebase Cloud Messaging initialization failed:", err);
+      }
+    } else {
+      console.log("Firebase Cloud Messaging is not supported in this browser/iframe context.");
+    }
+  }).catch((err) => {
+    console.warn("FCM isSupported check failed:", err);
+  });
 }
 
 /**

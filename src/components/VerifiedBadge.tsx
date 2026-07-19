@@ -11,14 +11,22 @@ export function VerifiedBadge({ className = "w-4 h-4" }: VerifiedBadgeProps) {
 
   return (
     <>
-      <button 
-        type="button"
+      <span 
+        role="button"
+        tabIndex={0}
         onClick={(e) => { 
           e.preventDefault(); 
           e.stopPropagation(); 
           setShowModal(true); 
         }}
-        className={`focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 flex-shrink-0 inline-flex items-center justify-center ml-1 p-0 border-0 bg-transparent overflow-visible ${className}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            setShowModal(true);
+          }
+        }}
+        className={`cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 flex-shrink-0 inline-flex items-center justify-center ml-1 p-0 border-0 bg-transparent overflow-visible ${className}`}
         dangerouslySetInnerHTML={{ __html: TALKO_VERIFIED_SVG }}
       />
       

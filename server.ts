@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import cors from "cors";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
-import admin from "firebase-admin";
+import * as admin from "firebase-admin";
 
 const app = express();
 app.use(express.json());
@@ -18,22 +18,24 @@ let messagingAdmin: any = null;
 function getFirebaseAdmin() {
   if (!adminApp) {
     try {
-      const adminApps = (admin as any).apps;
+      const adminModule = (admin as any).default || admin;
+      const adminApps = adminModule.apps || (admin as any).apps;
       if (adminApps && adminApps.length > 0) {
         adminApp = adminApps[0];
       } else {
         const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-        if (saJson) {
+        const credentialObj = adminModule.credential || (admin as any).credential;
+        if (saJson && credentialObj) {
           try {
-            adminApp = admin.initializeApp({
-              credential: (admin as any).credential.cert(JSON.parse(saJson))
+            adminApp = adminModule.initializeApp({
+              credential: credentialObj.cert(JSON.parse(saJson))
             });
           } catch (e: any) {
             console.error("[FIREBASE ADMIN] Failed to initialize with service account JSON, trying default:", e.message);
-            adminApp = admin.initializeApp();
+            adminApp = adminModule.initializeApp();
           }
         } else {
-          adminApp = admin.initializeApp();
+          adminApp = adminModule.initializeApp();
         }
       }
       dbAdmin = adminApp.firestore();

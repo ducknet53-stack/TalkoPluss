@@ -9,55 +9,46 @@ export const TALKO_AI_USER_ID = 'system_talko_ai';
 export async function ensureSystemAccount() {
   try {
     const systemRef = doc(db, 'users', SYSTEM_USER_ID);
-    const systemSnap = await getDoc(systemRef);
+    const systemSnap = await getDoc(systemRef).catch(() => null);
     
-    const systemUser: User = {
-      uid: SYSTEM_USER_ID,
-      username: 'Talko Updates',
-      usernameLower: 'talko updates',
-      email: 'updates@talko.app',
-      photoURL: TALKO_LOGO_DATA_URL,
-      about: 'Talko resmi destek ve duyuru hesabı.',
-      isOnline: true,
-      lastSeen: Date.now(),
-      createdAt: Date.now()
-    };
-
-    if (!systemSnap.exists()) {
-      await setDoc(systemRef, systemUser);
-    } else {
-      await updateDoc(systemRef, {
+    if (!systemSnap || !systemSnap.exists()) {
+      const systemUser: User = {
+        uid: SYSTEM_USER_ID,
         username: 'Talko Updates',
         usernameLower: 'talko updates',
-        photoURL: TALKO_LOGO_DATA_URL
+        email: 'updates@talko.app',
+        photoURL: TALKO_LOGO_DATA_URL,
+        about: 'Talko resmi destek ve duyuru hesabı.',
+        isOnline: true,
+        lastSeen: Date.now(),
+        createdAt: Date.now()
+      };
+      await setDoc(systemRef, systemUser).catch(err => {
+        console.warn("[SYSTEM ACCOUNT] Skip creation (handled by server or missing permission):", err.message);
       });
     }
 
     const aiRef = doc(db, 'users', TALKO_AI_USER_ID);
-    const aiSnap = await getDoc(aiRef);
+    const aiSnap = await getDoc(aiRef).catch(() => null);
 
-    const aiUser: User = {
-      uid: TALKO_AI_USER_ID,
-      username: 'Talko AI',
-      usernameLower: 'talko ai',
-      email: 'ai@talko.app',
-      photoURL: TALKO_AI_LOGO_DATA_URL,
-      about: '🤖 Resmî Yapay Zekâ Asistanı\nSorularınızı yanıtlar ve size yardımcı olur.',
-      isOnline: true,
-      lastSeen: Date.now(),
-      createdAt: Date.now()
-    };
-
-    if (!aiSnap.exists()) {
-      await setDoc(aiRef, aiUser);
-    } else {
-      await updateDoc(aiRef, {
+    if (!aiSnap || !aiSnap.exists()) {
+      const aiUser: User = {
+        uid: TALKO_AI_USER_ID,
+        username: 'Talko AI',
+        usernameLower: 'talko ai',
+        email: 'ai@talko.app',
         photoURL: TALKO_AI_LOGO_DATA_URL,
-        about: aiUser.about
+        about: '🤖 Resmî Yapay Zekâ Asistanı\nSorularınızı yanıtlar ve size yardımcı olur.',
+        isOnline: true,
+        lastSeen: Date.now(),
+        createdAt: Date.now()
+      };
+      await setDoc(aiRef, aiUser).catch(err => {
+        console.warn("[SYSTEM ACCOUNT] Skip AI creation (handled by server or missing permission):", err.message);
       });
     }
-  } catch (err) {
-    console.error('Failed to ensure system accounts:', err);
+  } catch (err: any) {
+    console.warn('Bypassed ensuring system accounts on client:', err.message);
   }
 }
 
