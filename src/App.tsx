@@ -13,6 +13,19 @@ import AdminPanel from './components/AdminPanel';
 import BannedScreen from './components/BannedScreen';
 import SplashScreen from './components/SplashScreen';
 import { motion, AnimatePresence } from 'motion/react';
+import DebugPanel from './components/DebugPanel';
+
+// Initialize global debug state
+if (typeof window !== 'undefined') {
+  (window as any).talkoDebugState = {
+    ai: 'Idle',
+    moderation: 'None',
+    firestore: 'None',
+    push: 'None',
+    serviceWorker: 'Missing',
+    fcm: 'None'
+  };
+}
 
 function AppContent() {
   const { currentUser, userProfile } = useAuth();
@@ -123,6 +136,7 @@ export default function App() {
               transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
             >
               <AppContent />
+              <DebugPanel />
             </motion.div>
           </AuthProvider>
         )}

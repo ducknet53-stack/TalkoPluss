@@ -954,23 +954,37 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
 
     // --- BACKGROUND PROCESS (ASYNCHRONOUS) ---
     const processBackgroundMessage = async () => {
+      console.log("Sending message");
       let isAppropriate = true;
       let modReason = "";
       let modCategory = "clean";
       let apiCallFailed = false;
       let apiErrorMessage = "";
 
+      if (typeof window !== 'undefined' && (window as any).talkoDebugState) {
+        (window as any).talkoDebugState.ai = 'Working';
+        (window as any).talkoDebugState.moderation = 'Pending';
+        (window as any).talkoDebugState.firestore = 'None';
+        window.dispatchEvent(new CustomEvent('talko-debug-update'));
+      }
+
       try {
-        console.log(`[AI MODERATION] Background control starting: "${messageText}"`);
+        console.log("Moderation started");
+        
+        // 8-second timeout to prevent hanging check indefinitely
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        
         const response = await fetch('/api/ai/moderate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: messageText })
-        });
+          body: JSON.stringify({ text: messageText }),
+          signal: controller.signal
+        }).finally(() => clearTimeout(timeoutId));
         
         if (response.ok) {
           const modResult = await response.json();
-          console.log("[AI MODERATION] Background server moderation response:", modResult);
+          console.log("Moderation result:", modResult);
           isAppropriate = modResult.isAppropriate;
           modReason = modResult.reason || "";
           modCategory = modResult.category || "clean";
@@ -980,31 +994,59 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           apiErrorMessage = errJson.message || errJson.error || `HTTP ${response.status}`;
         }
       } catch (e: any) {
-        console.error("[AI MODERATION ERROR] Background API failed:", e);
+        console.error("Moderation error:", e);
         apiCallFailed = true;
         apiErrorMessage = e.message || String(e);
       }
 
       if (apiCallFailed) {
-        console.warn(`[AI MODERATION FATAL] Detailed error logs: ${apiErrorMessage}. Bypassing moderation check to prevent blocking user message.`);
-        isAppropriate = true;
-        apiCallFailed = false;
-      }
+        console.error(`[AI MODERATION FATAL] Moderation service failed: ${apiErrorMessage}`);
+        if (typeof window !== 'undefined' && (window as any).talkoDebugState) {
+          (window as any).talkoDebugState.ai = 'Error';
+          (window as any).talkoDebugState.moderation = 'None';
+          window.dispatchEvent(new CustomEvent('talko-debug-update'));
+        }
 
-      if (!isAppropriate) {
-        toast.error("⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi.", {
-           style: { background: '#ef4444', color: '#fff' }
-        });
-        
-        // Update local optimistic message state to fail, turning it into the custom moderation warning bubble
+        // Set status to error to show Retry button!
         setOptimisticMessages(prev => prev.map(m => {
           if (m.id === tempId) {
             return {
               ...m,
-              status: 'failed',
-              isFailed: true,
+              status: 'error',
               originalText: messageText,
-              text: "⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi."
+              text: "Bağlantı hatası: Mesaj moderatör kontrolünden geçemedi."
+            };
+          }
+          return m;
+        }));
+        
+        toast.error(`⚠️ Moderasyon bağlantı hatası: ${apiErrorMessage}`, {
+           style: { background: '#ef4444', color: '#fff' }
+        });
+        return;
+      }
+
+      if (!isAppropriate) {
+        console.log("Moderation result: BLOCKED");
+        if (typeof window !== 'undefined' && (window as any).talkoDebugState) {
+          (window as any).talkoDebugState.ai = 'Idle';
+          (window as any).talkoDebugState.moderation = 'Blocked';
+          (window as any).talkoDebugState.firestore = 'None';
+          window.dispatchEvent(new CustomEvent('talko-debug-update'));
+        }
+
+        toast.error("⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için engellendi.", {
+           style: { background: '#ef4444', color: '#fff' }
+        });
+        
+        // Update local optimistic message state to blocked
+        setOptimisticMessages(prev => prev.map(m => {
+          if (m.id === tempId) {
+            return {
+              ...m,
+              status: 'blocked',
+              originalText: messageText,
+              text: "⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için engellendi."
             };
           }
           return m;
@@ -1034,6 +1076,14 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       }
 
       // --- SAVE SECURE & APPROVED MESSAGE TO FIRESTORE ---
+      console.log("Moderation result: SAFE");
+      if (typeof window !== 'undefined' && (window as any).talkoDebugState) {
+        (window as any).talkoDebugState.ai = 'Idle';
+        (window as any).talkoDebugState.moderation = 'Safe';
+        (window as any).talkoDebugState.firestore = 'Pending';
+        window.dispatchEvent(new CustomEvent('talko-debug-update'));
+      }
+
       const messageId = now.toString() + Math.random().toString(36).substring(2, 5);
       
       try {
@@ -1061,6 +1111,12 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           ...unreadUpdates
         });
         
+        console.log("Firestore write success");
+        if (typeof window !== 'undefined' && (window as any).talkoDebugState) {
+          (window as any).talkoDebugState.firestore = 'Success';
+          window.dispatchEvent(new CustomEvent('talko-debug-update'));
+        }
+
         playSendSound();
         dispatchPushNotification(messageText || (imageUrl ? '📷 Görsel' : ''));
 
@@ -1193,16 +1249,36 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           }
         }
 
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to persist optimistic message:", err);
+        if (typeof window !== 'undefined' && (window as any).talkoDebugState) {
+          (window as any).talkoDebugState.firestore = 'Failed';
+          window.dispatchEvent(new CustomEvent('talko-debug-update'));
+        }
         toast.error("⚠️ Mesaj gönderilirken bir hata oluştu.");
-        // Clear from optimistic UI to avoid hanging loader
-        setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
+        // Update optimistic state to error so the user has the retry option
+        setOptimisticMessages(prev => prev.map(m => {
+          if (m.id === tempId) {
+            return {
+              ...m,
+              status: 'error',
+              originalText: messageText,
+              text: "Gönderme hatası: Firestore kaydı tamamlanamadı."
+            };
+          }
+          return m;
+        }));
       }
     };
 
     // Execute background thread (non-blocking)
     processBackgroundMessage();
+  };
+
+  const handleRetrySendMessage = (msgId: string, text: string, imageUrl: string | null) => {
+    console.log("Retrying message sending for id:", msgId);
+    setOptimisticMessages(prev => prev.filter(m => m.id !== msgId));
+    handleSendMessage(text, imageUrl);
   };
 
   const onEmojiClick = (emojiObject: any) => {
@@ -1235,6 +1311,14 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
 
   const renderReadReceipt = (msg: Message, isLastMessage: boolean) => {
     if (msg.senderId !== currentUser?.uid) return null;
+    
+    if (msg.status === 'blocked' || msg.status === 'error' || msg.isFailed) {
+      return (
+        <span className="inline-flex ml-1 items-center gap-1 text-[10px] text-red-400 select-none font-semibold animate-fade-in" title="Başarısız">
+          ⚠️ Başarısız
+        </span>
+      );
+    }
     
     if (msg.status === 'pending') {
       return (
@@ -1442,7 +1526,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                 }}
                 className={cn(
                   "max-w-[75%] md:max-w-[65%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm relative group break-words transition-all duration-200",
-                  msg.isFailed
+                  (msg.isFailed || msg.status === 'error' || msg.status === 'blocked')
                     ? "bg-red-500/10 dark:bg-red-500/5 text-red-600 dark:text-red-400 border border-red-500/20 rounded-br-sm"
                     : isMine 
                       ? "bg-blue-600 text-white rounded-br-sm" 
@@ -1456,8 +1540,8 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                     {senderName}
                   </p>
                 )}
-                {msg.isFailed ? (
-                  <div className="flex flex-col gap-1">
+                {(msg.isFailed || msg.status === 'error' || msg.status === 'blocked') ? (
+                  <div className="flex flex-col gap-1.5">
                     {msg.originalText && (
                       <span className="text-xs text-gray-400 dark:text-gray-500 line-through italic mb-1 select-text">
                         {msg.originalText}
@@ -1466,6 +1550,22 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                     <span className="text-[14px] font-semibold flex items-center gap-1.5 text-red-600 dark:text-red-400">
                       {msg.text}
                     </span>
+                    {msg.status === 'error' && (
+                      <button
+                        onClick={() => handleRetrySendMessage(msg.id, msg.originalText || msg.text || '', msg.imageUrl || null)}
+                        className="mt-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm w-max cursor-pointer flex items-center gap-1.5"
+                      >
+                        🔄 Tekrar Dene
+                      </button>
+                    )}
+                    {msg.status === 'blocked' && (
+                      <button
+                        onClick={() => setOptimisticMessages(prev => prev.filter(m => m.id !== msg.id))}
+                        className="mt-1.5 px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold text-xs rounded-xl transition-all w-max cursor-pointer flex items-center gap-1.5"
+                      >
+                        Kapat
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <>

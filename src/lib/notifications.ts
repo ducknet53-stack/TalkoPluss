@@ -97,32 +97,45 @@ export async function requestNotificationPermission(userId: string): Promise<boo
 
   try {
     const permission = await Notification.requestPermission();
+    console.log("Notification permission requested. Result:", permission);
     if (permission === 'granted') {
       toast.success("Bildirimler başarıyla açıldı! 🎉");
+      console.log("Notification permission GRANTED");
       
       // Register FCM Token if messaging is available
       if (messaging) {
         try {
+          console.log("Registering Service Worker: /service-worker.js");
           // Register the Service Worker explicitly first
-          const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+          const registration = await navigator.serviceWorker.register('/service-worker.js', {
             scope: '/'
           });
+          console.log("Service Worker registered successfully! Scope:", registration.scope);
           
+          console.log("Fetching FCM Token from Firebase Messaging using VAPID Key...");
           const token = await getToken(messaging, {
             serviceWorkerRegistration: registration,
             vapidKey: VAPID_KEY
           });
 
           if (token) {
+            console.log("FCM Token successfully generated:", token);
+            console.log("Registering FCM Token in Firestore for user:", userId);
             await registerDeviceToken(userId, token);
-            console.log("FCM Token registered successfully:", token);
+            console.log("FCM Token registered in Firestore successfully.");
+          } else {
+            console.warn("FCM Token is empty or null");
           }
         } catch (fcmErr: any) {
+          console.error("FCM Token fetch or Service Worker registration failed:", fcmErr);
           console.warn("FCM Token fetch failed, falling back to local notifications. VAPID key may need to be updated. Error:", fcmErr.message);
         }
+      } else {
+        console.warn("Firebase Messaging is not initialized or not supported in this context.");
       }
       return true;
     } else {
+      console.warn("Notification permission was denied.");
       toast.error("Bildirim izni reddedildi.");
       return false;
     }

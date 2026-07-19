@@ -71,7 +71,7 @@ export interface Message {
   pollQuestion?: string;
   pollOptions?: PollOption[];
   eventData?: any;
-  status?: 'pending' | 'failed' | 'success';
+  status?: 'pending' | 'failed' | 'success' | 'blocked' | 'error';
   isFailed?: boolean;
   originalText?: string;
 }
