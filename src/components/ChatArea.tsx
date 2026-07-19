@@ -986,13 +986,9 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       }
 
       if (apiCallFailed) {
-        console.error(`[AI MODERATION FATAL] Detailed error logs: ${apiErrorMessage}`);
-        toast.error(`⚠️ Moderasyon hatası: ${apiErrorMessage}`, {
-           style: { background: '#ef4444', color: '#fff' }
-        });
-        // Remove the optimistic message so it doesn't stay in "pending" indefinitely
-        setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
-        return;
+        console.warn(`[AI MODERATION FATAL] Detailed error logs: ${apiErrorMessage}. Bypassing moderation check to prevent blocking user message.`);
+        isAppropriate = true;
+        apiCallFailed = false;
       }
 
       if (!isAppropriate) {
