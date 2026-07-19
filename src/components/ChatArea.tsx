@@ -455,7 +455,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         snapshot.docs.forEach(docSnap => {
           if (docSnap.id === currentUser?.uid) return;
           const data = docSnap.data();
-          if (data.isTyping && Date.now() - (data.timestamp || 0) < 5000) {
+          if (data.isTyping && Date.now() - (data.timestamp || 0) < 3000) {
             const name = liveUsers[docSnap.id]?.username || liveChat.participantDetails?.[docSnap.id]?.username || 'Birisi';
             typers.push(name);
           }
@@ -480,7 +480,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
             lastTypingTimeRef.current = timestamp;
   
             if (isTyping) {
-              if (Date.now() - timestamp < 5000) {
+              if (Date.now() - timestamp < 3000) {
                 setIsOtherUserTyping(true);
               } else {
                 setIsOtherUserTyping(false);
@@ -497,7 +497,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
 
     // Periodically decay/expire typing indicator if sender's connection drops
     const interval = setInterval(() => {
-      if (!liveChat.isGroup && lastTypingTimeRef.current && Date.now() - lastTypingTimeRef.current >= 5000) {
+      if (!liveChat.isGroup && lastTypingTimeRef.current && Date.now() - lastTypingTimeRef.current >= 3000) {
         setIsOtherUserTyping(false);
       }
     }, 1000);
@@ -540,8 +540,8 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     }
 
     const now = Date.now();
-    // Throttle the Firestore isTyping: true writes to once every 3.5 seconds to prevent rate-limiting or out-of-order execution
-    if (now - lastMyTypingWriteRef.current > 3500) {
+    // Throttle the Firestore isTyping: true writes to once every 2 seconds to prevent rate-limiting or out-of-order execution
+    if (now - lastMyTypingWriteRef.current > 2000) {
       setDoc(typingRef, { isTyping: true, timestamp: now }).catch(() => {});
       lastMyTypingWriteRef.current = now;
     }
@@ -551,7 +551,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     typingTimeoutRef.current = setTimeout(() => {
       setDoc(typingRef, { isTyping: false, timestamp: Date.now() }).catch(() => {});
       lastMyTypingWriteRef.current = 0;
-    }, 2500);
+    }, 1500);
   };
 
   const handleSendPoll = async () => {
@@ -1126,15 +1126,15 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         })}
         
         {isOtherUserTyping && !isAiChat && (
-          <div className="flex justify-start pl-10 w-full">
-            <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex flex-col gap-1">
+          <div className="flex justify-start pl-10 w-full mb-2">
+            <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl rounded-bl-sm px-4 py-3.5 shadow-sm flex flex-col gap-1.5 min-w-[60px]">
               {liveChat.isGroup && groupTypersText && (
-                <span className="text-[10px] text-blue-500 font-bold mb-0.5">{groupTypersText.split(' yazıyor...')[0]}</span>
+                <span className="text-[10px] text-blue-500 font-bold mb-1">{groupTypersText.split(' yazıyor...')[0]}</span>
               )}
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></span>
-                <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
-                <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></span>
+              <div className="flex items-center gap-1.5 justify-center h-2">
+                <span className="w-2.5 h-2.5 bg-blue-500 dark:bg-blue-400 rounded-full animate-typing-dot"></span>
+                <span className="w-2.5 h-2.5 bg-blue-500 dark:bg-blue-400 rounded-full animate-typing-dot" style={{ animationDelay: '0.2s' }}></span>
+                <span className="w-2.5 h-2.5 bg-blue-500 dark:bg-blue-400 rounded-full animate-typing-dot" style={{ animationDelay: '0.4s' }}></span>
               </div>
             </div>
           </div>
