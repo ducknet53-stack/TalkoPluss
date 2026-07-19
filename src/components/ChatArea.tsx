@@ -675,11 +675,19 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const startStage1 = async () => {
     const chatRef = doc(db, 'chats', chat.id);
     const questions = [
+      // Kolay (%60)
       { q: "Türkiye'nin başkenti neresidir?", a: "Ankara" },
+      { q: "Instagram, WhatsApp ve Facebook'un çatı şirketinin adı nedir?", a: "Meta" },
+      { q: "Minecraft'ta ilk gece hayatta kalmak için genellikle yapılan alet hangi malzemeden yapılır?", a: "Tahta" },
+      { q: "Haftanın ilk günü hangisidir?", a: "Pazartesi" },
+      { q: "Dünyanın uydusu nedir?", a: "Ay" },
+      { q: "Apple'ın kurucularından olan ünlü teknoloji lideri kimdir?", a: "Steve Jobs" },
+      // Orta (%30)
+      { q: "Romalıların inşa ettiği ünlü amfi tiyatronun adı nedir?", a: "Kolezyum" },
       { q: "Güneş sistemindeki en büyük gezegen hangisidir?", a: "Jüpiter" },
-      { q: "Hangi elementin periyodik tablodaki sembolü 'O' harfidir?", a: "Oksijen" },
-      { q: "İstanbul hangi yıl fethedilmiştir?", a: "1453" },
-      { q: "En küçük kıta hangisidir?", a: "Avustralya" }
+      { q: "Bir satranç tahtasında toplam kaç kare vardır?", a: "64" },
+      // Zor (%10)
+      { q: "Kuantum renk dinamiğinde gluonların sahip olabileceği kaç farklı renk şarjı (color charge) kombinasyonu vardır?", a: "8" }
     ];
     const randQ = questions[Math.floor(Math.random() * questions.length)];
     

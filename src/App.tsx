@@ -26,6 +26,66 @@ function AppContent() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  useEffect(() => {
+    if (userProfile?.isAdmin && !localStorage.getItem('removed_hasan1_roblox_bluetick')) {
+      localStorage.setItem('removed_hasan1_roblox_bluetick', 'true');
+      const run = async () => {
+        try {
+          const { query, collection, where, getDocs, updateDoc, doc, getDoc, setDoc, increment } = await import('firebase/firestore');
+          const { db } = await import('./lib/firebase');
+          const q = query(collection(db, 'users'), where('usernameLower', 'in', ['hasan1', 'robloxfanı', 'robloxfani']));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            for (const userDoc of snap.docs) {
+              await updateDoc(userDoc.ref, {
+                isVerified: false,
+                blueTickStatus: null,
+                blueTickReason: null
+              });
+              
+              const chatId = ['system_talko_ai', userDoc.id].sort().join('_');
+              const chatRef = doc(db, 'chats', chatId);
+              const chatSnap = await getDoc(chatRef);
+              
+              const now = Date.now();
+              if (!chatSnap.exists()) {
+                await setDoc(chatRef, {
+                  id: chatId,
+                  participants: ['system_talko_ai', userDoc.id],
+                  participantDetails: {
+                    'system_talko_ai': { username: 'Talko AI', photoURL: 'https://api.dicebear.com/7.x/bottts/svg?seed=TalkoAI&backgroundColor=0ea5e9' },
+                    [userDoc.id]: { username: userDoc.data().username, photoURL: userDoc.data().photoURL }
+                  },
+                  lastMessage: 'Maalesef mavi tikiniz geri alındı.',
+                  lastMessageTimestamp: now,
+                  updatedAt: now
+                });
+              } else {
+                await updateDoc(chatRef, {
+                  lastMessage: 'Maalesef mavi tikiniz geri alındı.',
+                  lastMessageTimestamp: now,
+                  updatedAt: now,
+                  [`unreadCount.${userDoc.id}`]: increment(1)
+                });
+              }
+              
+              const msgId = now.toString() + Math.random().toString(36).substring(2,5);
+              await setDoc(doc(db, `chats/${chatId}/messages`, msgId), {
+                id: msgId,
+                senderId: 'system_talko_ai',
+                text: 'Maalesef mavi tikiniz geri alındı.',
+                timestamp: now
+              });
+            }
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      };
+      run();
+    }
+  }, [userProfile?.isAdmin]);
+
   if (isAdminHash) {
     return <AdminPanel />;
   }
