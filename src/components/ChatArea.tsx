@@ -895,8 +895,42 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     }
     messageTimestampsRef.current = [...recentMessages, now];
 
-    // Profanity Check
-    if (hasProfanity(messageText)) {
+    // AI Moderation Check
+    let isAppropriate = true;
+    let modReason = "";
+    let modCategory = "clean";
+
+    try {
+      const response = await fetch('/api/ai/moderate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: messageText })
+      });
+      
+      if (response.ok) {
+        const modResult = await response.json();
+        isAppropriate = modResult.isAppropriate;
+        modReason = modResult.reason || "";
+        modCategory = modResult.category || "clean";
+      } else {
+        // Fallback to local check if API is not OK
+        if (hasProfanity(messageText)) {
+          isAppropriate = false;
+          modCategory = "profanity";
+          modReason = "Local regex fallback match";
+        }
+      }
+    } catch (e) {
+      console.error("Moderation API failed", e);
+      // Fallback to local
+      if (hasProfanity(messageText)) {
+        isAppropriate = false;
+        modCategory = "profanity";
+        modReason = "Local regex fallback match";
+      }
+    }
+
+    if (!isAppropriate) {
       toast.error("⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi.", {
          style: { background: '#ef4444', color: '#fff' }
       });
@@ -904,10 +938,14 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       try {
         await addDoc(collection(db, 'moderation_logs'), {
            userId: currentUser.uid,
+           username: currentUser.username,
            chatId: chat.id,
+           chatType: chat.isGroup ? 'group' : 'direct',
            text: messageText,
            timestamp: now,
-           type: 'profanity'
+           type: modCategory,
+           reason: modReason,
+           source: 'ai_moderation'
         });
       } catch(e) {}
 

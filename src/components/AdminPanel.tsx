@@ -32,6 +32,7 @@ import {
   Bell,
   Camera,
   Star,
+  ShieldAlert,
 } from "lucide-react";
 import { TALKO_LOGO_DATA_URL } from "../lib/assets";
 import toast from "react-hot-toast";
@@ -47,7 +48,7 @@ export default function AdminPanel() {
   });
 
   const [activeTab, setActiveTab] = useState<
-    "users" | "chats" | "broadcast" | "verifications"
+    "users" | "chats" | "broadcast" | "verifications" | "logs"
   >("users");
   const [users, setUsers] = useState<User[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
@@ -55,6 +56,7 @@ export default function AdminPanel() {
   const [selectedChatMessages, setSelectedChatMessages] = useState<Message[]>(
     [],
   );
+  const [moderationLogs, setModerationLogs] = useState<any[]>([]);
   const [searchUserQuery, setSearchUserQuery] = useState("");
   const [searchChatQuery, setSearchChatQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -201,6 +203,26 @@ export default function AdminPanel() {
 
     return () => unsubscribe();
   }, [isAuthorized, selectedChat]);
+
+  // 4. Fetch moderation logs
+  useEffect(() => {
+    if (!isAuthorized) return;
+
+    const logsRef = collection(db, "moderation_logs");
+    const q = query(logsRef, orderBy("timestamp", "desc"));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const logs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        setModerationLogs(logs);
+      },
+      (error) => {
+        console.error("Error fetching moderation logs:", error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isAuthorized]);
 
   // Ban/Unban user action
   const handleToggleBan = async (user: User) => {
@@ -672,6 +694,23 @@ export default function AdminPanel() {
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setActiveTab("logs")}
+              className={cn(
+                "flex-1 min-w-max py-4 px-5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2",
+                activeTab === "logs"
+                  ? "border-blue-500 text-blue-400 bg-slate-950/20"
+                  : "border-transparent text-slate-400 hover:text-white",
+              )}
+            >
+              <ShieldAlert size={16} />
+              Moderasyon
+              {moderationLogs.length > 0 && (
+                <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                  {moderationLogs.length}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Search Inputs */}
@@ -1117,6 +1156,54 @@ export default function AdminPanel() {
               ) : (
                 <div className="text-center text-slate-500 py-10">
                   Henüz doğrulama talebi bulunmuyor.
+                </div>
+              )}
+            </div>
+          ) : activeTab === "logs" ? (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <h3 className="font-bold text-white text-lg mb-4 flex items-center gap-2">
+                <ShieldAlert className="text-red-400" />
+                Moderasyon Logları (Ağır İhlaller)
+              </h3>
+              {moderationLogs.length > 0 ? (
+                moderationLogs.map((log) => (
+                  <div key={log.id} className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white">{log.username || "Bilinmeyen"}</span>
+                          <span className={cn(
+                            "px-2 py-0.5 text-[10px] font-bold uppercase rounded-md tracking-wider border",
+                            log.type === "profanity" ? "bg-red-950/50 text-red-400 border-red-900/50" :
+                            log.type === "harassment" ? "bg-orange-950/50 text-orange-400 border-orange-900/50" :
+                            log.type === "threat" ? "bg-purple-950/50 text-purple-400 border-purple-900/50" :
+                            "bg-yellow-950/50 text-yellow-400 border-yellow-900/50"
+                          )}>
+                            {log.type}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1 font-mono flex items-center gap-2">
+                          <span>{format(log.timestamp, "dd MMM yyyy HH:mm", { locale: tr })}</span>
+                          <span>•</span>
+                          <span>ID: {log.userId}</span>
+                          <span>•</span>
+                          <span className="text-blue-400">{log.chatType === "group" ? "Grup Sohbeti" : "Birebir Sohbet"}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 p-3 bg-slate-950/50 rounded-lg border border-slate-800/50">
+                      <p className="text-sm text-slate-300 italic">"{log.text}"</p>
+                    </div>
+                    {log.reason && (
+                      <p className="text-xs text-slate-400 mt-2 font-mono flex items-center gap-1.5">
+                        <span className="text-slate-500">AI Kararı:</span> {log.reason}
+                      </p>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-slate-500 py-10">
+                  Şu an için moderasyon günlüğü temiz.
                 </div>
               )}
             </div>

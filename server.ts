@@ -3,7 +3,7 @@ import { createServer as createViteServer } from "vite";
 import OpenAI from "openai";
 import cors from "cors";
 import path from "path";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 const app = express();
 app.use(express.json());
@@ -16,6 +16,67 @@ const geminiClient = new GoogleGenAI({
     headers: {
       'User-Agent': 'aistudio-build',
     }
+  }
+});
+
+app.post("/api/ai/moderate", async (req, res) => {
+  try {
+    const { text } = req.body;
+    
+    if (!text) {
+      return res.json({ isAppropriate: true, category: "clean", reason: "" });
+    }
+
+    const response = await geminiClient.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{
+        role: "user",
+        parts: [{ 
+          text: `Aşağıdaki Türkçe mesajı bir sohbet uygulaması için moderasyon kontrolünden geçir.
+Mesaj: "${text}"
+
+Görev:
+1. Küfür, hakaret, aşağılama, tehdit, taciz veya ağır argo içeriyor mu? (a.mk, @mk, a m k, p!ç, o.ç, s*k gibi harf değiştirme, gizleme, sembol kullanma yöntemlerine dikkat et. Anlama ve bağlama göre karar ver.)
+2. Normal ve temiz bir sohbet mesajıysa (argo bile olsa hakaret veya küfür içermiyorsa) uygun kabul et.
+3. Cevabın kesinlikle aşağıdaki JSON şemasına uymalıdır.`
+        }]
+      }],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isAppropriate: {
+              type: Type.BOOLEAN,
+              description: "Mesaj uygunsa true, uygunsuzsa false (küfür/hakaret vb.)"
+            },
+            category: {
+              type: Type.STRING,
+              description: "İhlal varsa kategorisi: 'profanity', 'harassment', 'threat', 'spam'. Sorun yoksa 'clean'"
+            },
+            reason: {
+              type: Type.STRING,
+              description: "Neden uygunsuz olduğuna dair çok kısa bir açıklama (uygunsa boş bırak)"
+            }
+          },
+          required: ["isAppropriate", "category", "reason"]
+        }
+      }
+    });
+
+    let result;
+    try {
+      const responseText = response.text || "{}";
+      result = JSON.parse(responseText);
+    } catch (e) {
+      result = { isAppropriate: true, category: "clean", reason: "Parse error" };
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    console.error("AI Moderation error:", err);
+    // Fallback to true if API fails, to not block chat completely
+    res.json({ isAppropriate: true, category: "clean", reason: "API Error" });
   }
 });
 
