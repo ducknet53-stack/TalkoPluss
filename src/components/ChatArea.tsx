@@ -987,7 +987,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
 
       if (apiCallFailed) {
         console.error(`[AI MODERATION FATAL] Detailed error logs: ${apiErrorMessage}`);
-        toast.error("⚠️ Moderasyon sistemi şu anda çevrimdışı olduğu için mesaj gönderilemedi. Lütfen daha sonra tekrar deneyin.", {
+        toast.error(`⚠️ Moderasyon hatası: ${apiErrorMessage}`, {
            style: { background: '#ef4444', color: '#fff' }
         });
         // Remove the optimistic message so it doesn't stay in "pending" indefinitely
