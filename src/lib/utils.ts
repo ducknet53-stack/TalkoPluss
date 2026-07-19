@@ -25,23 +25,44 @@ export const playSendSound = () => {
       audioCtx.resume();
     }
 
-    const osc = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
+    const t = audioCtx.currentTime;
 
-    osc.type = 'sine';
-    // WhatsApp like pop: starts high, drops fast
-    osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.05);
+    // Layer 1: Main body (Sine wave for smooth, warm, and audible tone)
+    const osc1 = audioCtx.createOscillator();
+    const gain1 = audioCtx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(750, t); // Mid frequency, pleasant to the ear
+    
+    gain1.gain.setValueAtTime(0, t);
+    // Strong attack to make it clearly audible (around 80-90% volume feel)
+    gain1.gain.linearRampToValueAtTime(0.8, t + 0.002);
+    gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
 
-    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 0.005);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+    osc1.connect(gain1);
+    gain1.connect(audioCtx.destination);
 
-    osc.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
+    // Layer 2: The "Tick" transient (Triangle wave for crispness and mobile speaker clarity)
+    const osc2 = audioCtx.createOscillator();
+    const gain2 = audioCtx.createGain();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(1200, t);
+    // Subtle, fast pitch drop gives the percussive "tick" character instead of a "beep"
+    osc2.frequency.exponentialRampToValueAtTime(400, t + 0.02);
+    
+    gain2.gain.setValueAtTime(0, t);
+    gain2.gain.linearRampToValueAtTime(0.5, t + 0.001); // Instant attack
+    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.04); // Fast decay
 
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.06);
+    osc2.connect(gain2);
+    gain2.connect(audioCtx.destination);
+
+    // Play both
+    osc1.start(t);
+    osc2.start(t);
+    
+    // Clean stop to prevent artifacts
+    osc1.stop(t + 0.08);
+    osc2.stop(t + 0.05);
   } catch (e) {
     // Silently ignore audio errors
   }
