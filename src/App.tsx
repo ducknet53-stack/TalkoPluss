@@ -12,6 +12,7 @@ import MainLayout from './components/MainLayout';
 import AdminPanel from './components/AdminPanel';
 import BannedScreen from './components/BannedScreen';
 import SplashScreen from './components/SplashScreen';
+import ShutdownScreen from './components/ShutdownScreen';
 import { motion, AnimatePresence } from 'motion/react';
 import DebugPanel from './components/DebugPanel';
 
@@ -123,24 +124,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <Toaster position="top-center" />
-      <AnimatePresence mode="wait">
-        {showSplash ? (
-          <SplashScreen key="splash" onComplete={() => setShowSplash(false)} />
-        ) : (
-          <AuthProvider>
-            <motion.div
-              key="app-main-content"
-              className="h-full w-full relative overflow-hidden bg-white dark:bg-gray-900 transition-colors"
-              initial={{ y: 30, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <AppContent />
-              <DebugPanel />
-            </motion.div>
-          </AuthProvider>
-        )}
-      </AnimatePresence>
+      <ShutdownScreen />
     </ThemeProvider>
   );
 }
