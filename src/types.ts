@@ -17,6 +17,17 @@ export interface User {
   blockedUsers?: string[];
 }
 
+export interface EventState {
+  isActive: boolean;
+  stage?: 'initiating' | 'quiz' | 'transitioning' | 'number' | 'finished';
+  yesVotes?: string[];
+  question?: string;
+  answer?: string;
+  targetNumber?: number;
+  winnerId?: string;
+  lastEndTime?: number;
+}
+
 export interface Chat {
   id: string;
   participants: string[];
@@ -33,6 +44,8 @@ export interface Chat {
   lastRead?: Record<string, number>;
   lastDelivered?: Record<string, number>;
   unreadCount?: Record<string, number>;
+  eventState?: EventState;
+  awaitingOtherAccount?: boolean;
 }
 
 export interface PollOption {
@@ -47,9 +60,10 @@ export interface Message {
   text: string | null;
   imageUrl: string | null;
   timestamp: number;
-  type?: 'text' | 'poll';
+  type?: 'text' | 'poll' | 'event';
   pollQuestion?: string;
   pollOptions?: PollOption[];
+  eventData?: any;
 }
 
 export interface TypingStatus {

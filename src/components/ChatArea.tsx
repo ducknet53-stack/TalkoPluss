@@ -168,6 +168,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTypingTimeRef = useRef<number>(0);
   const lastMyTypingWriteRef = useRef<number>(0);
+  const lastEventErrorTimeRef = useRef<number>(0);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -640,6 +641,229 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     }
   };
 
+  // --- Event System Functions ---
+  const sendTalkoAiMessage = async (text: string, isEventCard = false, eventData: any = null) => {
+    const aiMessageId = Date.now().toString() + Math.random().toString(36).substring(2, 5);
+    const aiMsg: any = {
+      id: aiMessageId,
+      senderId: TALKO_AI_USER_ID,
+      text,
+      imageUrl: null,
+      timestamp: Date.now()
+    };
+    if (isEventCard) {
+      aiMsg.type = 'event';
+      if (eventData) aiMsg.eventData = eventData;
+    }
+    await setDoc(doc(db, `chats/${chat.id}/messages`, aiMessageId), aiMsg);
+    
+    const unreadUpdates: Record<string, any> = {};
+    liveChat.participants.forEach(p => {
+      if (p !== TALKO_AI_USER_ID && p !== currentUser?.uid) {
+        unreadUpdates[`unreadCount.${p}`] = increment(1);
+      }
+    });
+    const chatRef = doc(db, 'chats', chat.id);
+    await updateDoc(chatRef, {
+      lastMessage: isEventCard ? '🎉 Etkinlik' : text,
+      lastMessageTimestamp: Date.now(),
+      updatedAt: Date.now(),
+      ...unreadUpdates
+    });
+  };
+
+  const startStage1 = async () => {
+    const chatRef = doc(db, 'chats', chat.id);
+    const questions = [
+      { q: "Türkiye'nin başkenti neresidir?", a: "Ankara" },
+      { q: "Güneş sistemindeki en büyük gezegen hangisidir?", a: "Jüpiter" },
+      { q: "Hangi elementin periyodik tablodaki sembolü 'O' harfidir?", a: "Oksijen" },
+      { q: "İstanbul hangi yıl fethedilmiştir?", a: "1453" },
+      { q: "En küçük kıta hangisidir?", a: "Avustralya" }
+    ];
+    const randQ = questions[Math.floor(Math.random() * questions.length)];
+    
+    await updateDoc(chatRef, {
+      'eventState.stage': 'quiz',
+      'eventState.question': randQ.q,
+      'eventState.answer': randQ.a
+    });
+    
+    await sendTalkoAiMessage("🎉 Etkinlik başladı!\n\nBol şans!");
+    setTimeout(async () => {
+      await sendTalkoAiMessage(`1. ETKİNLİK\n\nBilgi Yarışması\n\n❓ ${randQ.q}\n\nİlk doğru cevabı veren kazansın.`);
+    }, 1500);
+  };
+
+  const startStage2 = async () => {
+    const chatRef = doc(db, 'chats', chat.id);
+    const targetNumber = Math.floor(Math.random() * 100) + 1;
+    
+    await updateDoc(chatRef, {
+      'eventState.stage': 'number',
+      'eventState.targetNumber': targetNumber
+    });
+    
+    await sendTalkoAiMessage(`2. ETKİNLİK\n\nSayı Tahmin Oyunu\n\n1-100 arasında bir sayı tuttum.\n\nİlk bilen kazansın.`);
+  };
+
+  const initiateRewardDM = async (winnerId: string) => {
+    if (currentUser?.uid !== winnerId) return;
+
+    const dmChatId = [TALKO_AI_USER_ID, winnerId].sort().join('_');
+    const dmRef = doc(db, 'chats', dmChatId);
+    const dmDoc = await getDoc(dmRef);
+    
+    const now = Date.now();
+    if (!dmDoc.exists()) {
+      const winnerName = liveUsers[winnerId]?.username || currentUser.username;
+      const winnerPhoto = liveUsers[winnerId]?.photoURL || currentUser.photoURL || null;
+      await setDoc(dmRef, {
+        id: dmChatId,
+        participants: [TALKO_AI_USER_ID, winnerId],
+        participantDetails: {
+          [TALKO_AI_USER_ID]: { username: 'Talko AI', photoURL: TALKO_AI_LOGO_DATA_URL },
+          [winnerId]: { username: winnerName, photoURL: winnerPhoto }
+        },
+        lastMessage: 'Verified hangi hesaba verilsin?',
+        lastMessageTimestamp: now,
+        updatedAt: now
+      });
+    } else {
+       await updateDoc(dmRef, {
+        lastMessage: 'Verified hangi hesaba verilsin?',
+        lastMessageTimestamp: now,
+        updatedAt: now
+       });
+    }
+    
+    const msgId = now.toString() + Math.random().toString(36).substring(2, 5);
+    await setDoc(doc(db, `chats/${dmChatId}/messages`, msgId), {
+      id: msgId,
+      senderId: TALKO_AI_USER_ID,
+      text: 'Verified hangi hesaba verilsin?',
+      type: 'event',
+      eventData: { type: 'reward_prompt' },
+      timestamp: now
+    });
+  };
+
+  const handleEventWinStage1 = async (winnerId: string) => {
+    const chatRef = doc(db, 'chats', chat.id);
+    await updateDoc(chatRef, {
+      'eventState.stage': 'transitioning',
+      'eventState.yesVotes': [],
+      'eventState.noVotes': []
+    });
+    
+    const winnerName = liveUsers[winnerId]?.username || liveChat.participantDetails?.[winnerId]?.username || 'Kullanıcı';
+    
+    await sendTalkoAiMessage(`🎉 Tebrikler!\n\n@${winnerName} doğru cevabı verdi.`);
+    
+    setTimeout(async () => {
+      await sendTalkoAiMessage("🎲 İkinci etkinliğe geçilsin mi?", true, { type: 'transitioning' });
+    }, 1500);
+  };
+  
+  const handleEventWinStage2 = async (winnerId: string) => {
+    const chatRef = doc(db, 'chats', chat.id);
+    await updateDoc(chatRef, {
+      'eventState.isActive': false,
+      'eventState.stage': 'finished',
+      'eventState.winnerId': winnerId,
+      'eventState.lastEndTime': Date.now()
+    });
+    
+    const winnerName = liveUsers[winnerId]?.username || liveChat.participantDetails?.[winnerId]?.username || 'Kullanıcı';
+    
+    await sendTalkoAiMessage(`🏆 Tebrikler!\n\n@${winnerName} etkinliği kazandı!\n\nÖdül:\n💙 Talko Verified`);
+    
+    setTimeout(async () => {
+      await sendTalkoAiMessage("🎉 Etkinlik sona erdi!\n\nKatılan herkese teşekkür ederiz. ❤️\n\nYeni bir etkinlik başlatmak için birkaç dakika sonra tekrar /event yazabilirsiniz.");
+    }, 1500);
+    
+    await initiateRewardDM(winnerId);
+  };
+
+  const handleEventVote = async (vote: 'yes' | 'no') => {
+    if (!currentUser || !liveChat.eventState?.isActive) return;
+    
+    const { stage, yesVotes = [], noVotes = [] } = liveChat.eventState;
+    if (yesVotes.includes(currentUser.uid) || noVotes.includes(currentUser.uid)) return;
+    
+    const chatRef = doc(db, 'chats', chat.id);
+    
+    if (vote === 'yes') {
+      const newYesVotes = [...yesVotes, currentUser.uid];
+      await updateDoc(chatRef, {
+        'eventState.yesVotes': newYesVotes
+      });
+      
+      if (newYesVotes.length >= 2) {
+        if (stage === 'initiating') {
+          await startStage1();
+        } else if (stage === 'transitioning') {
+          await startStage2();
+        }
+      }
+    } else {
+      const newNoVotes = [...noVotes, currentUser.uid];
+      await updateDoc(chatRef, {
+        'eventState.noVotes': newNoVotes
+      });
+    }
+  };
+
+  const handleRewardVote = async (action: 'this_account' | 'other_account') => {
+    if (!currentUser) return;
+    if (action === 'this_account') {
+      await sendTalkoAiMessage("Harika!\n\nVerified isteğin admin onayına gönderildi.");
+      await updateDoc(doc(db, "users", currentUser.uid), {
+         blueTickStatus: 'pending',
+         blueTickReason: 'Talko AI Etkinlik Kazananı'
+      });
+      await updateDoc(doc(db, 'chats', chat.id), { awaitingOtherAccount: false });
+    } else {
+      await updateDoc(doc(db, 'chats', chat.id), {
+         'awaitingOtherAccount': true
+      });
+      await sendTalkoAiMessage("Lütfen kullanıcı adını yaz.");
+    }
+  };
+
+  const handleEventCommand = async () => {
+    const now = Date.now();
+    if (liveChat.eventState?.isActive) {
+      if (now - lastEventErrorTimeRef.current > 10000) {
+        lastEventErrorTimeRef.current = now;
+        await sendTalkoAiMessage("⏳ Bu sohbette zaten aktif bir etkinlik bulunuyor.\n\nLütfen mevcut etkinliğin bitmesini bekleyin.");
+      }
+      return;
+    }
+    
+    if (liveChat.eventState?.lastEndTime && now - liveChat.eventState.lastEndTime < 5 * 60 * 1000) {
+      if (now - lastEventErrorTimeRef.current > 10000) {
+        lastEventErrorTimeRef.current = now;
+        await sendTalkoAiMessage("🎉 Bu sohbette az önce bir etkinlik tamamlandı.\n\n⏳ Yeni etkinlik için lütfen 5 dakika bekleyin.");
+      }
+      return;
+    }
+    
+    const chatRef = doc(db, 'chats', chat.id);
+    await updateDoc(chatRef, {
+      'eventState.isActive': true,
+      'eventState.stage': 'initiating',
+      'eventState.yesVotes': [],
+      'eventState.noVotes': []
+    });
+    
+    await sendTalkoAiMessage(
+      "🎉 Yeni bir Talko Etkinliği başlatılsın mı?\n\n🏆 Kazanan özel ödül kazanacaktır.\n\nKatılmak ister misiniz?",
+      true,
+      { type: 'initiating' }
+    );
+  };
+
   const handleSendMessage = async (text: string, imageUrl: string | null = null) => {
     const messageText = text.trim();
     if ((!messageText && !imageUrl) || !currentUser) return;
@@ -694,7 +918,39 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         ...unreadUpdates
       });
       
-      if (isAiChat || (liveChat.isGroup && messageText.toLowerCase().includes('@talko ai'))) {
+      // Event Intercepts
+      if (messageText.toLowerCase() === '/event') {
+        await handleEventCommand();
+      } else if (liveChat.eventState?.isActive && !isSystemChat) {
+        if (liveChat.eventState.stage === 'quiz' && liveChat.eventState.answer) {
+           if (messageText.toLowerCase() === liveChat.eventState.answer.toLowerCase()) {
+              await handleEventWinStage1(currentUser.uid);
+           }
+        } else if (liveChat.eventState.stage === 'number' && liveChat.eventState.targetNumber) {
+           const num = parseInt(messageText);
+           if (!isNaN(num) && num === liveChat.eventState.targetNumber) {
+              await handleEventWinStage2(currentUser.uid);
+           }
+        }
+      } else if (liveChat.awaitingOtherAccount && chat.participants.includes(TALKO_AI_USER_ID)) {
+         const q = query(collection(db, 'users'), where('usernameLower', '==', messageText.toLowerCase()));
+         const querySnapshot = await getDocs(q);
+         if (!querySnapshot.empty) {
+           const targetUserDoc = querySnapshot.docs[0];
+           await updateDoc(doc(db, "users", targetUserDoc.id), {
+             blueTickStatus: 'pending',
+             blueTickReason: `Talko AI Etkinlik Kazananı (@${currentUser.username} tarafından önerildi)`
+           });
+           await updateDoc(doc(db, 'chats', chat.id), { awaitingOtherAccount: false });
+           await sendTalkoAiMessage("Tamam!\n\nVerified isteğin admin onayına gönderildi.");
+         } else {
+           await sendTalkoAiMessage("Kullanıcı bulunamadı. Lütfen doğru kullanıcı adını yazdığından emin ol.");
+           // Return early to prevent the regular message processing from sending the text to AI
+           // Actually, we don't want AI to respond. Wait, we should skip AI.
+         }
+      }
+      
+      if ((isAiChat || (liveChat.isGroup && messageText.toLowerCase().includes('@talko ai'))) && messageText.toLowerCase() !== '/event' && !liveChat.awaitingOtherAccount) {
         const cleanMessage = isAiChat ? messageText : messageText.replace(/@talko ai/gi, '').trim();
 
         setAiState({ isGenerating: true, isThinking: true, streamText: '' });
@@ -1053,6 +1309,60 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                 {msg.text && msg.type !== 'poll' && (
                   <div className="text-[15px] leading-relaxed text-inherit">
                     {renderMarkdown(msg.text)}
+                  </div>
+                )}
+                {msg.type === 'event' && msg.eventData && (
+                  <div className="mt-3 space-y-2 w-full min-w-[200px]">
+                    {msg.eventData.type === 'initiating' && liveChat.eventState?.stage === 'initiating' && (
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleEventVote('yes')}
+                          className="flex-1 bg-white dark:bg-gray-800 text-green-600 dark:text-green-400 font-bold py-2.5 rounded-xl border border-gray-100 dark:border-gray-700 hover:bg-green-50 dark:hover:bg-green-900/20 hover:border-green-200 dark:hover:border-green-800 transition-all shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <span>✅</span> Evet ({liveChat.eventState?.yesVotes?.length || 0}/2)
+                        </button>
+                        <button 
+                          onClick={() => handleEventVote('no')}
+                          className="flex-1 bg-white dark:bg-gray-800 text-red-600 dark:text-red-400 font-bold py-2.5 rounded-xl border border-gray-100 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-200 dark:hover:border-red-800 transition-all shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <span>❌</span> Hayır
+                        </button>
+                      </div>
+                    )}
+                    
+                    {msg.eventData.type === 'transitioning' && liveChat.eventState?.stage === 'transitioning' && (
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleEventVote('yes')}
+                          className="flex-1 bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 font-bold py-2.5 rounded-xl border border-gray-100 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 transition-all shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <span>🎲</span> Evet ({liveChat.eventState?.yesVotes?.length || 0}/2)
+                        </button>
+                        <button 
+                          onClick={() => handleEventVote('no')}
+                          className="flex-1 bg-white dark:bg-gray-800 text-red-600 dark:text-red-400 font-bold py-2.5 rounded-xl border border-gray-100 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-200 dark:hover:border-red-800 transition-all shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <span>❌</span> Hayır
+                        </button>
+                      </div>
+                    )}
+                    
+                    {msg.eventData.type === 'reward_prompt' && liveChat.awaitingOtherAccount !== false && (
+                      <div className="flex flex-col gap-2">
+                        <button 
+                          onClick={() => handleRewardVote('this_account')}
+                          className="w-full bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 font-bold py-2.5 rounded-xl border border-gray-100 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 transition-all shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <span>💙</span> Bu Hesabım
+                        </button>
+                        <button 
+                          onClick={() => handleRewardVote('other_account')}
+                          className="w-full bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-300 font-bold py-2.5 rounded-xl border border-gray-100 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-all shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <span>➕</span> Başka Hesap
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
                 {msg.type === 'poll' && msg.pollOptions && (
