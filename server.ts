@@ -27,56 +27,124 @@ app.post("/api/ai/moderate", async (req, res) => {
       return res.json({ isAppropriate: true, category: "clean", reason: "" });
     }
 
-    const response = await geminiClient.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [{
-        role: "user",
-        parts: [{ 
-          text: `Aşağıdaki Türkçe mesajı bir sohbet uygulaması için moderasyon kontrolünden geçir.
+    console.log(`[MODERATION REQUEST] Content to check: "${text}"`);
+
+    let result = null;
+    let geminiError = null;
+
+    // 1. Try Gemini Moderation
+    try {
+      console.log("[MODERATION] Attempting Gemini API (gemini-3.5-flash)...");
+      const response = await geminiClient.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: [{
+          role: "user",
+          parts: [{ 
+            text: `Aşağıdaki Türkçe mesajı bir sohbet uygulaması için moderasyon kontrolünden geçir.
 Mesaj: "${text}"
 
 Görev:
-1. Küfür, hakaret, aşağılama, tehdit, taciz veya ağır argo içeriyor mu? (a.mk, @mk, a m k, p!ç, o.ç, s*k gibi harf değiştirme, gizleme, sembol kullanma yöntemlerine dikkat et. Anlama ve bağlama göre karar ver.)
-2. Normal ve temiz bir sohbet mesajıysa (argo bile olsa hakaret veya küfür içermiyorsa) uygun kabul et.
-3. Cevabın kesinlikle aşağıdaki JSON şemasına uymalıdır.`
-        }]
-      }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            isAppropriate: {
-              type: Type.BOOLEAN,
-              description: "Mesaj uygunsa true, uygunsuzsa false (küfür/hakaret vb.)"
+1. Küfür, hakaret, aşağılama, tehdit, taciz veya ağır argo içeriyor mu? (Özellikle a.mk, @mk, a m k, p!ç, o.ç, s*k gibi harf değiştirme, gizleme, sembol kullanma, aralara boşluk, nokta veya işaret yerleştirme yöntemlerine karşı duyarlı ol.)
+2. Sadece kelime listesi eşleştirmesi yapma. Anlam ve bağlam analizi gerçekleştir. Mesajın asıl niyetini ve anlamını kavra.
+3. Normal ve temiz bir sohbet mesajıysa (argo/alaycı kelimeler içerse bile hakaret veya küfür içermiyorsa, örneğin "Merhaba", "Bugün nasılsın?", "Talko çok güzel olmuş" gibi ifadeler) kesinlikle uygun kabul et (isAppropriate: true).
+4. Çıktı formatı olarak kesinlikle şu JSON şemasını döndür:
+{
+  "isAppropriate": boolean, // Uygunsa true, küfür/hakaret/uygunsuz ise false
+  "category": string, // "profanity" (küfür/argo), "harassment" (taciz/aşağılama), "threat" (tehdit), "spam" (gereksiz tekrar), veya sorun yoksa "clean"
+  "reason": string // Neden uygunsuz bulunduğuna dair kısa Türkçe açıklama
+}`
+          }]
+        }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              isAppropriate: {
+                type: Type.BOOLEAN,
+                description: "Mesaj uygunsa true, uygunsuzsa false (küfür/hakaret vb.)"
+              },
+              category: {
+                type: Type.STRING,
+                description: "İhlal varsa kategorisi: 'profanity', 'harassment', 'threat', 'spam'. Sorun yoksa 'clean'"
+              },
+              reason: {
+                type: Type.STRING,
+                description: "Neden uygunsuz olduğuna dair çok kısa bir açıklama (uygunsa boş bırak)"
+              }
             },
-            category: {
-              type: Type.STRING,
-              description: "İhlal varsa kategorisi: 'profanity', 'harassment', 'threat', 'spam'. Sorun yoksa 'clean'"
-            },
-            reason: {
-              type: Type.STRING,
-              description: "Neden uygunsuz olduğuna dair çok kısa bir açıklama (uygunsa boş bırak)"
-            }
-          },
-          required: ["isAppropriate", "category", "reason"]
+            required: ["isAppropriate", "category", "reason"]
+          }
         }
-      }
-    });
+      });
 
-    let result;
-    try {
       const responseText = response.text || "{}";
+      console.log("[MODERATION] Gemini API Response received successfully:", responseText);
       result = JSON.parse(responseText);
-    } catch (e) {
-      result = { isAppropriate: true, category: "clean", reason: "Parse error" };
+    } catch (err: any) {
+      geminiError = err;
+      console.error("[MODERATION] Gemini API failed. Error detail:", err.message || err);
     }
 
+    // 2. Try OpenAI Fallback if Gemini failed
+    if (!result) {
+      console.log("[MODERATION] Falling back to OpenAI (gpt-4o)...");
+      try {
+        const token = process.env.GITHUB_TOKEN;
+        if (!token) {
+          throw new Error("GITHUB_TOKEN is not set for fallback OpenAI moderation.");
+        }
+
+        const openai = new OpenAI({
+          baseURL: "https://models.inference.ai.azure.com",
+          apiKey: token,
+        });
+
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert content moderation AI. Respond only with a JSON object containing: isAppropriate (boolean), category (string: 'profanity' | 'harassment' | 'threat' | 'spam' | 'clean'), reason (string)."
+            },
+            {
+              role: "user",
+              content: `Aşağıdaki Türkçe mesajı bir sohbet uygulaması için moderasyon kontrolünden geçir.
+Mesaj: "${text}"
+
+Görev:
+1. Küfür, hakaret, aşağılama, tehdit, taciz veya ağır argo içeriyor mu? (Özellikle a.mk, @mk, a m k, p!ç, o.ç, s*k gibi harf değiştirme, gizleme, sembol kullanma, aralara boşluk, nokta veya işaret yerleştirme yöntemlerine karşı duyarlı ol.)
+2. Sadece kelime listesi eşleştirmesi yapma. Anlam ve bağlam analizi gerçekleştir. Mesajın asıl niyetini ve anlamını kavra.
+3. Normal ve temiz bir sohbet mesajıysa (argo/alaycı kelimeler içerse bile hakaret veya küfür içermiyorsa, örneğin "Merhaba", "Bugün nasılsın?", "Talko çok güzel olmuş" gibi ifadeler) kesinlikle uygun kabul et (isAppropriate: true).
+4. Çıktı formatı olarak kesinlikle şu JSON şemasını döndür:
+{
+  "isAppropriate": boolean,
+  "category": string,
+  "reason": string
+}`
+            }
+          ],
+          response_format: { type: "json_object" }
+        });
+
+        const responseText = response.choices[0]?.message?.content || "{}";
+        console.log("[MODERATION] OpenAI (gpt-4o) Response received successfully:", responseText);
+        result = JSON.parse(responseText);
+      } catch (err: any) {
+        console.error("[MODERATION] OpenAI Fallback also failed. Error detail:", err.message || err);
+        throw new Error(`AI Moderation service completely offline. Gemini Error: ${geminiError?.message || geminiError}. OpenAI Error: ${err.message}`);
+      }
+    }
+
+    // Return the final result
     res.json(result);
   } catch (err: any) {
-    console.error("AI Moderation error:", err);
-    // Fallback to true if API fails, to not block chat completely
-    res.json({ isAppropriate: true, category: "clean", reason: "API Error" });
+    console.error("[MODERATION FATAL ERROR] Detailed error logs:", err);
+    // Return status 500 so that the client handles it properly as service failure
+    res.status(500).json({ 
+      error: "AI Moderation service failed", 
+      message: err.message || String(err)
+    });
   }
 });
 

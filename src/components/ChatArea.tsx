@@ -135,6 +135,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const { currentUser, userProfile } = useAuth();
   const { theme } = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [failedMessages, setFailedMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -157,6 +158,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   
   useEffect(() => {
     setLiveChat(chat);
+    setFailedMessages([]); // Reset failed moderated messages when switching chats
     if (!chat?.id || !currentUser) return;
     const unsub = onSnapshot(doc(db, 'chats', chat.id), (docSnap) => {
       if (docSnap.exists()) {
@@ -899,8 +901,11 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     let isAppropriate = true;
     let modReason = "";
     let modCategory = "clean";
+    let apiCallFailed = false;
+    let apiErrorMessage = "";
 
     try {
+      console.log(`[AI MODERATION] Sending message to server for control: "${messageText}"`);
       const response = await fetch('/api/ai/moderate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -909,25 +914,27 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       
       if (response.ok) {
         const modResult = await response.json();
+        console.log("[AI MODERATION] Server moderation response:", modResult);
         isAppropriate = modResult.isAppropriate;
         modReason = modResult.reason || "";
         modCategory = modResult.category || "clean";
       } else {
-        // Fallback to local check if API is not OK
-        if (hasProfanity(messageText)) {
-          isAppropriate = false;
-          modCategory = "profanity";
-          modReason = "Local regex fallback match";
-        }
+        apiCallFailed = true;
+        const errJson = await response.json().catch(() => ({}));
+        apiErrorMessage = errJson.message || errJson.error || `HTTP ${response.status}`;
       }
-    } catch (e) {
-      console.error("Moderation API failed", e);
-      // Fallback to local
-      if (hasProfanity(messageText)) {
-        isAppropriate = false;
-        modCategory = "profanity";
-        modReason = "Local regex fallback match";
-      }
+    } catch (e: any) {
+      console.error("[AI MODERATION ERROR] Moderation API failed:", e);
+      apiCallFailed = true;
+      apiErrorMessage = e.message || String(e);
+    }
+
+    if (apiCallFailed) {
+      console.error(`[AI MODERATION FATAL] Detailed error logs: ${apiErrorMessage}`);
+      toast.error("⚠️ Moderasyon sistemi şu anda çevrimdışı olduğu için mesaj gönderilemedi. Lütfen daha sonra tekrar deneyin.", {
+         style: { background: '#ef4444', color: '#fff' }
+      });
+      return;
     }
 
     if (!isAppropriate) {
@@ -935,10 +942,22 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
          style: { background: '#ef4444', color: '#fff' }
       });
       
+      // Add to local failedMessages so only the current user sees the red failed message bubble
+      const failedMsgObj = {
+        id: 'failed_' + Date.now(),
+        senderId: currentUser.uid,
+        text: "⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi.",
+        originalText: messageText,
+        timestamp: now,
+        isFailed: true,
+        type: 'text'
+      };
+      setFailedMessages(prev => [...prev, failedMsgObj]);
+
       try {
         await addDoc(collection(db, 'moderation_logs'), {
            userId: currentUser.uid,
-           username: currentUser.username,
+           username: currentUser.username || userProfile?.username || '',
            chatId: chat.id,
            chatType: chat.isGroup ? 'group' : 'direct',
            text: messageText,
@@ -1322,17 +1341,19 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-6"
       >
-        {messages.map((msg, idx) => {
-          const isMine = msg.senderId === currentUser?.uid;
-          const showAvatar = !isMine && (idx === 0 || messages[idx - 1].senderId !== msg.senderId);
-          
-          const senderName = liveChat.isGroup
-            ? (liveUsers[msg.senderId]?.username || liveChat.participantDetails?.[msg.senderId]?.username || 'Katılımcı')
-            : otherUserDetails?.username;
+        {(() => {
+          const allMessages = [...messages, ...failedMessages];
+          return allMessages.map((msg, idx) => {
+            const isMine = msg.senderId === currentUser?.uid;
+            const showAvatar = !isMine && (idx === 0 || allMessages[idx - 1].senderId !== msg.senderId);
             
-          const senderPhoto = liveChat.isGroup
-            ? (liveUsers[msg.senderId]?.photoURL || liveChat.participantDetails?.[msg.senderId]?.photoURL)
-            : otherUserDetails?.photoURL;
+            const senderName = liveChat.isGroup
+              ? (liveUsers[msg.senderId]?.username || liveChat.participantDetails?.[msg.senderId]?.username || 'Katılımcı')
+              : otherUserDetails?.username;
+              
+            const senderPhoto = liveChat.isGroup
+              ? (liveUsers[msg.senderId]?.photoURL || liveChat.participantDetails?.[msg.senderId]?.photoURL)
+              : otherUserDetails?.photoURL;
 
           return (
             <div key={msg.id} className="flex flex-col w-full min-w-0">
@@ -1367,7 +1388,11 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                 }}
                 className={cn(
                   "max-w-[75%] md:max-w-[65%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm relative group break-words transition-all duration-200",
-                  isMine ? "bg-blue-600 text-white rounded-br-sm" : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm",
+                  msg.isFailed
+                    ? "bg-red-500/10 dark:bg-red-500/5 text-red-600 dark:text-red-400 border border-red-500/20 rounded-br-sm"
+                    : isMine 
+                      ? "bg-blue-600 text-white rounded-br-sm" 
+                      : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm",
                   selectedMessageForReport?.id === msg.id && "ring-2 ring-blue-500 scale-[1.02] shadow-md z-10"
                 )}
               >
@@ -1376,26 +1401,41 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                     {senderName}
                   </p>
                 )}
-                {msg.imageUrl && (
-                  <img 
-                    src={msg.imageUrl} 
-                    alt="Shared" 
-                    onLoad={() => {
-                      const container = scrollContainerRef.current;
-                      if (container) {
-                        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 250;
-                        if (isNearBottom) {
-                          scrollToBottom('smooth');
-                        }
-                      }
-                    }}
-                    className="max-w-full rounded-xl mb-2 object-cover max-h-64 cursor-pointer hover:opacity-95 transition-opacity" 
-                  />
-                )}
-                {msg.text && msg.type !== 'poll' && (
-                  <div className="text-[15px] leading-relaxed text-inherit">
-                    {renderMarkdown(msg.text)}
+                {msg.isFailed ? (
+                  <div className="flex flex-col gap-1">
+                    {msg.originalText && (
+                      <span className="text-xs text-gray-400 dark:text-gray-500 line-through italic mb-1 select-text">
+                        {msg.originalText}
+                      </span>
+                    )}
+                    <span className="text-[14px] font-semibold flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                      {msg.text}
+                    </span>
                   </div>
+                ) : (
+                  <>
+                    {msg.imageUrl && (
+                      <img 
+                        src={msg.imageUrl} 
+                        alt="Shared" 
+                        onLoad={() => {
+                          const container = scrollContainerRef.current;
+                          if (container) {
+                            const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 250;
+                            if (isNearBottom) {
+                              scrollToBottom('smooth');
+                            }
+                          }
+                        }}
+                        className="max-w-full rounded-xl mb-2 object-cover max-h-64 cursor-pointer hover:opacity-95 transition-opacity" 
+                      />
+                    )}
+                    {msg.text && msg.type !== 'poll' && (
+                      <div className="text-[15px] leading-relaxed text-inherit">
+                        {renderMarkdown(msg.text)}
+                      </div>
+                    )}
+                  </>
                 )}
                 {msg.type === 'event' && msg.eventData && (
                   <div className="mt-3 space-y-2 w-full min-w-[200px]">
@@ -1507,19 +1547,20 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                   isMine ? "text-blue-200" : "text-gray-400 dark:text-gray-500"
                 )}>
                   {format(msg.timestamp, 'HH:mm')}
-                  {isMine && renderReadReceipt(msg, idx === messages.length - 1)}
+                  {isMine && renderReadReceipt(msg, idx === allMessages.length - 1)}
                 </span>
               </div>
             </div>
             
-            {msg.senderId === TALKO_AI_USER_ID && (!aiState.isGenerating || idx !== messages.length - 1) && (
+            {msg.senderId === TALKO_AI_USER_ID && (!aiState.isGenerating || idx !== allMessages.length - 1) && (
               <div className="w-full pl-10 text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 select-none text-left">
                 Talko AI yanlış yanıtlar verebilir.
               </div>
             )}
           </div>
           );
-        })}
+        });
+      })()}
         
         {isOtherUserTyping && !isAiChat && (
           <div className="flex justify-start pl-10 w-full mb-2">
