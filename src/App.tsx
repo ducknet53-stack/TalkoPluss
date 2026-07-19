@@ -27,8 +27,8 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    if (userProfile?.isAdmin && !localStorage.getItem('removed_hasan1_roblox_bluetick')) {
-      localStorage.setItem('removed_hasan1_roblox_bluetick', 'true');
+    if (userProfile?.isAdmin && !localStorage.getItem('removed_hasan1_roblox_bluetick_v2')) {
+      localStorage.setItem('removed_hasan1_roblox_bluetick_v2', 'true');
       const run = async () => {
         try {
           const { query, collection, where, getDocs, updateDoc, doc, getDoc, setDoc, increment } = await import('firebase/firestore');
@@ -48,6 +48,9 @@ function AppContent() {
               const chatSnap = await getDoc(chatRef);
               
               const now = Date.now();
+              const shortMessage = '😔 Mavi tikiniz geri alındı.';
+              const fullMessage = '😔 **Merhaba**, sistem kontrolleri sonucunda hesabınızdaki **Mavi Tik (Verified)** onayının maalesef geri alındığını bildirmek isteriz.\n\nEğer bunun bir hata olduğunu düşünüyorsanız lütfen destek ekibimizle iletişime geçin. Anlayışınız için teşekkürler. 💙';
+
               if (!chatSnap.exists()) {
                 await setDoc(chatRef, {
                   id: chatId,
@@ -56,13 +59,13 @@ function AppContent() {
                     'system_talko_ai': { username: 'Talko AI', photoURL: 'https://api.dicebear.com/7.x/bottts/svg?seed=TalkoAI&backgroundColor=0ea5e9' },
                     [userDoc.id]: { username: userDoc.data().username, photoURL: userDoc.data().photoURL }
                   },
-                  lastMessage: 'Maalesef mavi tikiniz geri alındı.',
+                  lastMessage: shortMessage,
                   lastMessageTimestamp: now,
                   updatedAt: now
                 });
               } else {
                 await updateDoc(chatRef, {
-                  lastMessage: 'Maalesef mavi tikiniz geri alındı.',
+                  lastMessage: shortMessage,
                   lastMessageTimestamp: now,
                   updatedAt: now,
                   [`unreadCount.${userDoc.id}`]: increment(1)
@@ -73,7 +76,7 @@ function AppContent() {
               await setDoc(doc(db, `chats/${chatId}/messages`, msgId), {
                 id: msgId,
                 senderId: 'system_talko_ai',
-                text: 'Maalesef mavi tikiniz geri alındı.',
+                text: fullMessage,
                 timestamp: now
               });
             }

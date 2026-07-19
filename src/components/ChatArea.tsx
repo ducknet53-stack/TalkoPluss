@@ -13,7 +13,7 @@ import { formatLastSeen } from '../lib/dateUtils';
 import { motion, AnimatePresence } from 'motion/react';
 import { SYSTEM_USER_ID, TALKO_AI_USER_ID } from '../lib/systemAccount';
 import { TALKO_LOGO_DATA_URL, TALKO_AI_LOGO_DATA_URL } from '../lib/assets';
-import { cn } from '../lib/utils';
+import { cn, playSendSound } from '../lib/utils';
 import { uploadImage } from '../lib/imgbb';
 import toast from 'react-hot-toast';
 import { VerifiedBadge } from './VerifiedBadge';
@@ -599,6 +599,8 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         ...unreadUpdates
       });
       
+      playSendSound();
+
       setShowPollModal(false);
       setPollQuestion('');
       setPollOptions([{ id: '1', text: 'Evet' }, { id: '2', text: 'Hayır' }]);
@@ -926,6 +928,8 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         ...unreadUpdates
       });
       
+      playSendSound();
+
       // Event Intercepts
       if (messageText.toLowerCase() === '/event') {
         await handleEventCommand();
