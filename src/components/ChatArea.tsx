@@ -971,16 +971,11 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       try {
         console.log("Moderation started");
         
-        // 8-second timeout to prevent hanging check indefinitely
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-        
         const response = await fetch('/api/ai/moderate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: messageText }),
-          signal: controller.signal
-        }).finally(() => clearTimeout(timeoutId));
+          body: JSON.stringify({ text: messageText })
+        });
         
         if (response.ok) {
           const modResult = await response.json();
