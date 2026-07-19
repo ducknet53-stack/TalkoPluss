@@ -135,7 +135,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const { currentUser, userProfile } = useAuth();
   const { theme } = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);
-  const [failedMessages, setFailedMessages] = useState<any[]>([]);
+  const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -158,7 +158,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   
   useEffect(() => {
     setLiveChat(chat);
-    setFailedMessages([]); // Reset failed moderated messages when switching chats
+    setOptimisticMessages([]); // Reset optimistic and failed moderated messages when switching chats
     if (!chat?.id || !currentUser) return;
     const unsub = onSnapshot(doc(db, 'chats', chat.id), (docSnap) => {
       if (docSnap.exists()) {
@@ -897,87 +897,21 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
     }
     messageTimestampsRef.current = [...recentMessages, now];
 
-    // AI Moderation Check
-    let isAppropriate = true;
-    let modReason = "";
-    let modCategory = "clean";
-    let apiCallFailed = false;
-    let apiErrorMessage = "";
+    // --- OPTIMISTIC UI INITIALIZATION ---
+    const tempId = 'opt_' + now + Math.random().toString(36).substring(2, 5);
+    const optimisticMsg: Message = {
+      id: tempId,
+      senderId: currentUser.uid,
+      text: messageText || null,
+      imageUrl,
+      timestamp: now,
+      status: 'pending' // 'kontrol ediliyor...' state
+    };
 
-    try {
-      console.log(`[AI MODERATION] Sending message to server for control: "${messageText}"`);
-      const response = await fetch('/api/ai/moderate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: messageText })
-      });
-      
-      if (response.ok) {
-        const modResult = await response.json();
-        console.log("[AI MODERATION] Server moderation response:", modResult);
-        isAppropriate = modResult.isAppropriate;
-        modReason = modResult.reason || "";
-        modCategory = modResult.category || "clean";
-      } else {
-        apiCallFailed = true;
-        const errJson = await response.json().catch(() => ({}));
-        apiErrorMessage = errJson.message || errJson.error || `HTTP ${response.status}`;
-      }
-    } catch (e: any) {
-      console.error("[AI MODERATION ERROR] Moderation API failed:", e);
-      apiCallFailed = true;
-      apiErrorMessage = e.message || String(e);
-    }
+    // Immediately show the message in the local UI
+    setOptimisticMessages(prev => [...prev, optimisticMsg]);
 
-    if (apiCallFailed) {
-      console.error(`[AI MODERATION FATAL] Detailed error logs: ${apiErrorMessage}`);
-      toast.error("⚠️ Moderasyon sistemi şu anda çevrimdışı olduğu için mesaj gönderilemedi. Lütfen daha sonra tekrar deneyin.", {
-         style: { background: '#ef4444', color: '#fff' }
-      });
-      return;
-    }
-
-    if (!isAppropriate) {
-      toast.error("⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi.", {
-         style: { background: '#ef4444', color: '#fff' }
-      });
-      
-      // Add to local failedMessages so only the current user sees the red failed message bubble
-      const failedMsgObj = {
-        id: 'failed_' + Date.now(),
-        senderId: currentUser.uid,
-        text: "⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi.",
-        originalText: messageText,
-        timestamp: now,
-        isFailed: true,
-        type: 'text'
-      };
-      setFailedMessages(prev => [...prev, failedMsgObj]);
-
-      try {
-        await addDoc(collection(db, 'moderation_logs'), {
-           userId: currentUser.uid,
-           username: currentUser.username || userProfile?.username || '',
-           chatId: chat.id,
-           chatType: chat.isGroup ? 'group' : 'direct',
-           text: messageText,
-           timestamp: now,
-           type: modCategory,
-           reason: modReason,
-           source: 'ai_moderation'
-        });
-      } catch(e) {}
-
-      // Talko AI gently warns (rate limited to once every 1 minute per chat)
-      const lastWarning = localStorage.getItem(`talko_warning_${chat.id}`);
-      if (!lastWarning || now - parseInt(lastWarning) > 60000) {
-         localStorage.setItem(`talko_warning_${chat.id}`, now.toString());
-         await sendTalkoAiMessage("💙 Lütfen topluluk kurallarına uygun konuşalım.");
-      }
-      return;
-    }
-
-    // Immediately clear input and reset emoji picker for a fast native-like response
+    // Immediately clear input, focus, and reset emoji picker for high reactivity
     if (!imageUrl) {
       setInputText('');
       setTimeout(() => {
@@ -994,170 +928,263 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       console.error("Error clearing typing status on send:", err);
     });
 
-    const messageId = now.toString() + Math.random().toString(36).substring(2, 5);
-    
-    try {
-      const messageRef = doc(db, `chats/${chat.id}/messages`, messageId);
-      await setDoc(messageRef, {
-        id: messageId,
-        senderId: currentUser.uid,
-        text: messageText || null,
-        imageUrl,
-        timestamp: now
-      });
+    // Staggered smooth scrolling to bottom
+    forceScrollToBottom('smooth');
 
-      const unreadUpdates: Record<string, any> = {};
-      liveChat.participants.forEach(p => {
-        if (p !== currentUser.uid) {
-          unreadUpdates[`unreadCount.${p}`] = increment(1);
+    // --- BACKGROUND PROCESS (ASYNCHRONOUS) ---
+    const processBackgroundMessage = async () => {
+      let isAppropriate = true;
+      let modReason = "";
+      let modCategory = "clean";
+      let apiCallFailed = false;
+      let apiErrorMessage = "";
+
+      try {
+        console.log(`[AI MODERATION] Background control starting: "${messageText}"`);
+        const response = await fetch('/api/ai/moderate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: messageText })
+        });
+        
+        if (response.ok) {
+          const modResult = await response.json();
+          console.log("[AI MODERATION] Background server moderation response:", modResult);
+          isAppropriate = modResult.isAppropriate;
+          modReason = modResult.reason || "";
+          modCategory = modResult.category || "clean";
+        } else {
+          apiCallFailed = true;
+          const errJson = await response.json().catch(() => ({}));
+          apiErrorMessage = errJson.message || errJson.error || `HTTP ${response.status}`;
         }
-      });
-
-      const chatRef = doc(db, 'chats', chat.id);
-      await updateDoc(chatRef, {
-        lastMessage: messageText || (imageUrl ? '📷 Görsel' : ''),
-        lastMessageTimestamp: now,
-        updatedAt: now,
-        ...unreadUpdates
-      });
-      
-      playSendSound();
-
-      // Event Intercepts
-      if (messageText.toLowerCase() === '/event') {
-        await handleEventCommand();
-      } else if (liveChat.eventState?.isActive && !isSystemChat) {
-        if (liveChat.eventState.stage === 'quiz' && liveChat.eventState.answer) {
-           if (messageText.toLowerCase() === liveChat.eventState.answer.toLowerCase()) {
-              await handleEventWinStage1(currentUser.uid);
-           }
-        } else if (liveChat.eventState.stage === 'number' && liveChat.eventState.targetNumber) {
-           const num = parseInt(messageText);
-           if (!isNaN(num) && num === liveChat.eventState.targetNumber) {
-              await handleEventWinStage2(currentUser.uid);
-           }
-        }
-      } else if (liveChat.awaitingOtherAccount && chat.participants.includes(TALKO_AI_USER_ID)) {
-         const q = query(collection(db, 'users'), where('usernameLower', '==', messageText.toLowerCase()));
-         const querySnapshot = await getDocs(q);
-         if (!querySnapshot.empty) {
-           const targetUserDoc = querySnapshot.docs[0];
-           await updateDoc(doc(db, "users", targetUserDoc.id), {
-             blueTickStatus: 'pending',
-             blueTickReason: `Talko AI Etkinlik Kazananı (@${currentUser.username} tarafından önerildi)`
-           });
-           await updateDoc(doc(db, 'chats', chat.id), { awaitingOtherAccount: false });
-           await sendTalkoAiMessage("Tamam!\n\nVerified isteğin admin onayına gönderildi.");
-         } else {
-           await sendTalkoAiMessage("Kullanıcı bulunamadı. Lütfen doğru kullanıcı adını yazdığından emin ol.");
-           // Return early to prevent the regular message processing from sending the text to AI
-           // Actually, we don't want AI to respond. Wait, we should skip AI.
-         }
+      } catch (e: any) {
+        console.error("[AI MODERATION ERROR] Background API failed:", e);
+        apiCallFailed = true;
+        apiErrorMessage = e.message || String(e);
       }
-      
-      if ((isAiChat || (liveChat.isGroup && messageText.toLowerCase().includes('@talko ai'))) && messageText.toLowerCase() !== '/event' && !liveChat.awaitingOtherAccount) {
-        const cleanMessage = isAiChat ? messageText : messageText.replace(/@talko ai/gi, '').trim();
 
-        setAiState({ isGenerating: true, isThinking: true, streamText: '' });
-        try {
-          const history = messages.slice(-15).map(m => ({
-            role: m.senderId === TALKO_AI_USER_ID ? 'model' : 'user',
-            text: m.text || ''
-          }));
+      if (apiCallFailed) {
+        console.error(`[AI MODERATION FATAL] Detailed error logs: ${apiErrorMessage}`);
+        toast.error("⚠️ Moderasyon sistemi şu anda çevrimdışı olduğu için mesaj gönderilemedi. Lütfen daha sonra tekrar deneyin.", {
+           style: { background: '#ef4444', color: '#fff' }
+        });
+        // Remove the optimistic message so it doesn't stay in "pending" indefinitely
+        setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
+        return;
+      }
 
-          const response = await fetch('/api/ai/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: cleanMessage || 'Bana yardımcı ol.', history })
-          });
-          
-          if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error || `AI API Error: ${response.status}`);
+      if (!isAppropriate) {
+        toast.error("⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi.", {
+           style: { background: '#ef4444', color: '#fff' }
+        });
+        
+        // Update local optimistic message state to fail, turning it into the custom moderation warning bubble
+        setOptimisticMessages(prev => prev.map(m => {
+          if (m.id === tempId) {
+            return {
+              ...m,
+              status: 'failed',
+              isFailed: true,
+              originalText: messageText,
+              text: "⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi."
+            };
           }
-          
-          setAiState(prev => ({ ...prev, isThinking: false }));
-          
-          const reader = response.body?.getReader();
-          const decoder = new TextDecoder();
-          let aiFullText = '';
-          let buffer = '';
-          
-          if (reader) {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              
-              buffer += decoder.decode(value, { stream: true });
-              
-              let newlineIndex;
-              while ((newlineIndex = buffer.indexOf('\n\n')) >= 0) {
-                const sseMessage = buffer.slice(0, newlineIndex).trim();
-                buffer = buffer.slice(newlineIndex + 2);
+          return m;
+        }));
+
+        try {
+          await addDoc(collection(db, 'moderation_logs'), {
+             userId: currentUser.uid,
+             username: currentUser.username || userProfile?.username || '',
+             chatId: chat.id,
+             chatType: chat.isGroup ? 'group' : 'direct',
+             text: messageText,
+             timestamp: now,
+             type: modCategory,
+             reason: modReason,
+             source: 'ai_moderation'
+          });
+        } catch(e) {}
+
+        // Talko AI gently warns (rate limited to once every 1 minute per chat)
+        const lastWarning = localStorage.getItem(`talko_warning_${chat.id}`);
+        if (!lastWarning || now - parseInt(lastWarning) > 60000) {
+           localStorage.setItem(`talko_warning_${chat.id}`, now.toString());
+           await sendTalkoAiMessage("💙 Lütfen topluluk kurallarına uygun konuşalım.");
+        }
+        return;
+      }
+
+      // --- SAVE SECURE & APPROVED MESSAGE TO FIRESTORE ---
+      const messageId = now.toString() + Math.random().toString(36).substring(2, 5);
+      
+      try {
+        const messageRef = doc(db, `chats/${chat.id}/messages`, messageId);
+        await setDoc(messageRef, {
+          id: messageId,
+          senderId: currentUser.uid,
+          text: messageText || null,
+          imageUrl,
+          timestamp: now
+        });
+
+        const unreadUpdates: Record<string, any> = {};
+        liveChat.participants.forEach(p => {
+          if (p !== currentUser.uid) {
+            unreadUpdates[`unreadCount.${p}`] = increment(1);
+          }
+        });
+
+        const chatRef = doc(db, 'chats', chat.id);
+        await updateDoc(chatRef, {
+          lastMessage: messageText || (imageUrl ? '📷 Görsel' : ''),
+          lastMessageTimestamp: now,
+          updatedAt: now,
+          ...unreadUpdates
+        });
+        
+        playSendSound();
+
+        // Remove from optimistic UI state since Firestore has successfully received and persisted it
+        setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
+
+        // Event Intercepts
+        if (messageText.toLowerCase() === '/event') {
+          await handleEventCommand();
+        } else if (liveChat.eventState?.isActive && !isSystemChat) {
+          if (liveChat.eventState.stage === 'quiz' && liveChat.eventState.answer) {
+             if (messageText.toLowerCase() === liveChat.eventState.answer.toLowerCase()) {
+                await handleEventWinStage1(currentUser.uid);
+             }
+          } else if (liveChat.eventState.stage === 'number' && liveChat.eventState.targetNumber) {
+             const num = parseInt(messageText);
+             if (!isNaN(num) && num === liveChat.eventState.targetNumber) {
+                await handleEventWinStage2(currentUser.uid);
+             }
+          }
+        } else if (liveChat.awaitingOtherAccount && chat.participants.includes(TALKO_AI_USER_ID)) {
+           const q = query(collection(db, 'users'), where('usernameLower', '==', messageText.toLowerCase()));
+           const querySnapshot = await getDocs(q);
+           if (!querySnapshot.empty) {
+             const targetUserDoc = querySnapshot.docs[0];
+             await updateDoc(doc(db, "users", targetUserDoc.id), {
+               blueTickStatus: 'pending',
+               blueTickReason: `Talko AI Etkinlik Kazananı (@${currentUser.username} tarafından önerildi)`
+             });
+             await updateDoc(doc(db, 'chats', chat.id), { awaitingOtherAccount: false });
+             await sendTalkoAiMessage("Tamam!\n\nVerified isteğin admin onayına gönderildi.");
+           } else {
+             await sendTalkoAiMessage("Kullanıcı bulunamadı. Lütfen doğru kullanıcı adını yazdığından emin ol.");
+           }
+        }
+
+        // --- TALKO AI CHAT RESPONSE INBACKGROUND ---
+        if ((isAiChat || (liveChat.isGroup && messageText.toLowerCase().includes('@talko ai'))) && messageText.toLowerCase() !== '/event' && !liveChat.awaitingOtherAccount) {
+          const cleanMessage = isAiChat ? messageText : messageText.replace(/@talko ai/gi, '').trim();
+
+          setAiState({ isGenerating: true, isThinking: true, streamText: '' });
+          try {
+            const history = messages.slice(-15).map(m => ({
+              role: m.senderId === TALKO_AI_USER_ID ? 'model' : 'user',
+              text: m.text || ''
+            }));
+
+            const response = await fetch('/api/ai/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: cleanMessage || 'Bana yardımcı ol.', history })
+            });
+            
+            if (!response.ok) {
+              const errData = await response.json().catch(() => ({}));
+              throw new Error(errData.error || `AI API Error: ${response.status}`);
+            }
+            
+            setAiState(prev => ({ ...prev, isThinking: false }));
+            
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            let aiFullText = '';
+            let buffer = '';
+            
+            if (reader) {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
                 
-                const lines = sseMessage.split('\n');
-                for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    const dataStr = line.slice(6);
-                    if (dataStr.trim() === '[DONE]') break;
-                    try {
-                      const parsed = JSON.parse(dataStr);
-                      if (parsed.text) {
-                        aiFullText += parsed.text;
-                        setAiState(prev => ({ ...prev, streamText: aiFullText }));
+                buffer += decoder.decode(value, { stream: true });
+                
+                let newlineIndex;
+                while ((newlineIndex = buffer.indexOf('\n\n')) >= 0) {
+                  const sseMessage = buffer.slice(0, newlineIndex).trim();
+                  buffer = buffer.slice(newlineIndex + 2);
+                  
+                  const lines = sseMessage.split('\n');
+                  for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                      const dataStr = line.slice(6);
+                      if (dataStr.trim() === '[DONE]') break;
+                      try {
+                        const parsed = JSON.parse(dataStr);
+                        if (parsed.text) {
+                          aiFullText += parsed.text;
+                          setAiState(prev => ({ ...prev, streamText: aiFullText }));
+                        }
+                      } catch (e) {
+                        console.error("Parse error:", e, dataStr);
                       }
-                    } catch (e) {
-                      console.error("Parse error:", e, dataStr);
                     }
                   }
                 }
               }
             }
-          }
-          
-          setAiState({ isGenerating: false, isThinking: false, streamText: '' });
-          
-          if (aiFullText.trim()) {
-            const aiNow = Date.now();
-            const aiMsgId = aiNow.toString() + Math.random().toString(36).substring(2, 5);
-            await setDoc(doc(db, `chats/${chat.id}/messages`, aiMsgId), {
-               id: aiMsgId,
-               senderId: TALKO_AI_USER_ID,
-               text: aiFullText,
-               imageUrl: null,
-               timestamp: aiNow
-            });
-            const aiUnreadUpdates: Record<string, any> = {};
-            liveChat.participants.forEach(p => {
-              if (p !== currentUser.uid) {
-                aiUnreadUpdates[`unreadCount.${p}`] = increment(1);
-              }
-            });
+            
+            setAiState({ isGenerating: false, isThinking: false, streamText: '' });
+            
+            if (aiFullText.trim()) {
+              const aiNow = Date.now();
+              const aiMsgId = aiNow.toString() + Math.random().toString(36).substring(2, 5);
+              await setDoc(doc(db, `chats/${chat.id}/messages`, aiMsgId), {
+                 id: aiMsgId,
+                 senderId: TALKO_AI_USER_ID,
+                 text: aiFullText,
+                 imageUrl: null,
+                 timestamp: aiNow
+              });
+              const aiUnreadUpdates: Record<string, any> = {};
+              liveChat.participants.forEach(p => {
+                if (p !== currentUser.uid) {
+                  aiUnreadUpdates[`unreadCount.${p}`] = increment(1);
+                }
+              });
 
-            await updateDoc(chatRef, { 
-              lastMessage: aiFullText,
-              lastMessageTimestamp: aiNow,
-              updatedAt: aiNow,
-              ...aiUnreadUpdates
-            });
-          } else {
-            throw new Error("AI returned empty response");
+              await updateDoc(chatRef, { 
+                lastMessage: aiFullText,
+                lastMessageTimestamp: aiNow,
+                updatedAt: aiNow,
+                ...aiUnreadUpdates
+              });
+            } else {
+              throw new Error("AI returned empty response");
+            }
+          } catch (err: any) {
+            console.error("AI chat error:", err);
+            toast.error(err.message || "Talko AI yanıt veremedi.");
+            setAiState({ isGenerating: false, isThinking: false, streamText: '' });
           }
-        } catch (err: any) {
-          console.error("AI chat error:", err);
-          toast.error(err.message || "Talko AI yanıt veremedi.");
-          setAiState({ isGenerating: false, isThinking: false, streamText: '' });
         }
-      }
 
-    } catch (err) {
-      console.error(err);
-      toast.error("Mesaj gönderilemedi.");
-      // Restore input text if send failed so user doesn't lose it
-      if (!imageUrl) {
-        setInputText(messageText);
+      } catch (err) {
+        console.error("Failed to persist optimistic message:", err);
+        toast.error("⚠️ Mesaj gönderilirken bir hata oluştu.");
+        // Clear from optimistic UI to avoid hanging loader
+        setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
       }
-    }
+    };
+
+    // Execute background thread (non-blocking)
+    processBackgroundMessage();
   };
 
   const onEmojiClick = (emojiObject: any) => {
@@ -1190,6 +1217,15 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
 
   const renderReadReceipt = (msg: Message, isLastMessage: boolean) => {
     if (msg.senderId !== currentUser?.uid) return null;
+    
+    if (msg.status === 'pending') {
+      return (
+        <span className="inline-flex ml-1 items-center gap-1 text-[10px] text-blue-100 dark:text-blue-200 select-none" title="Kontrol ediliyor...">
+          <Loader2 className="animate-spin" size={10} />
+          <span>Kontrol ediliyor...</span>
+        </span>
+      );
+    }
     
     let isRead = false;
     let isDelivered = false;
@@ -1342,7 +1378,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
         className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-6"
       >
         {(() => {
-          const allMessages = [...messages, ...failedMessages];
+          const allMessages = [...messages, ...optimisticMessages].sort((a, b) => a.timestamp - b.timestamp);
           return allMessages.map((msg, idx) => {
             const isMine = msg.senderId === currentUser?.uid;
             const showAvatar = !isMine && (idx === 0 || allMessages[idx - 1].senderId !== msg.senderId);
@@ -1393,6 +1429,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
                     : isMine 
                       ? "bg-blue-600 text-white rounded-br-sm" 
                       : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm",
+                  msg.status === 'pending' && "animate-pulse opacity-85",
                   selectedMessageForReport?.id === msg.id && "ring-2 ring-blue-500 scale-[1.02] shadow-md z-10"
                 )}
               >

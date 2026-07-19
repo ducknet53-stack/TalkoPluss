@@ -64,6 +64,9 @@ export interface Message {
   pollQuestion?: string;
   pollOptions?: PollOption[];
   eventData?: any;
+  status?: 'pending' | 'failed' | 'success';
+  isFailed?: boolean;
+  originalText?: string;
 }
 
 export interface TypingStatus {
