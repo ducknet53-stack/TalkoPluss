@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import type { ChangeEvent } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, setDoc, getDoc, updateDoc, increment, addDoc, where, getDocs } from 'firebase/firestore';
 import { ArrowLeft, Send, Image as ImageIcon, Smile, User as UserIcon, Loader2, MoreVertical, Ban, ShieldAlert, Flag, CheckCircle2, ShieldBan, X, Copy, Megaphone, BarChart2, Plus, Trash2 } from 'lucide-react';
 import EmojiPicker from 'emoji-picker-react';
 import { db } from '../lib/firebase';
@@ -17,6 +17,7 @@ import { cn, playSendSound } from '../lib/utils';
 import { uploadImage } from '../lib/imgbb';
 import toast from 'react-hot-toast';
 import { VerifiedBadge } from './VerifiedBadge';
+import { hasProfanity } from '../lib/moderation';
 
 function renderMarkdown(text: string): ReactNode {
   if (!text) return null;
@@ -169,6 +170,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const lastTypingTimeRef = useRef<number>(0);
   const lastMyTypingWriteRef = useRef<number>(0);
   const lastEventErrorTimeRef = useRef<number>(0);
+  const messageTimestampsRef = useRef<number[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -883,6 +885,41 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       return;
     }
 
+    const now = Date.now();
+
+    // Spam Check (5 messages within 5 seconds)
+    const recentMessages = messageTimestampsRef.current.filter(t => now - t < 5000);
+    if (recentMessages.length >= 5) {
+      toast.error("⏳ Çok hızlı mesaj gönderiyorsunuz. Lütfen birkaç saniye bekleyin.");
+      return;
+    }
+    messageTimestampsRef.current = [...recentMessages, now];
+
+    // Profanity Check
+    if (hasProfanity(messageText)) {
+      toast.error("⚠️ Bu mesaj topluluk kurallarına uygun olmadığı için gönderilemedi.", {
+         style: { background: '#ef4444', color: '#fff' }
+      });
+      
+      try {
+        await addDoc(collection(db, 'moderation_logs'), {
+           userId: currentUser.uid,
+           chatId: chat.id,
+           text: messageText,
+           timestamp: now,
+           type: 'profanity'
+        });
+      } catch(e) {}
+
+      // Talko AI gently warns (rate limited to once every 1 minute per chat)
+      const lastWarning = localStorage.getItem(`talko_warning_${chat.id}`);
+      if (!lastWarning || now - parseInt(lastWarning) > 60000) {
+         localStorage.setItem(`talko_warning_${chat.id}`, now.toString());
+         await sendTalkoAiMessage("💙 Lütfen topluluk kurallarına uygun konuşalım.");
+      }
+      return;
+    }
+
     // Immediately clear input and reset emoji picker for a fast native-like response
     if (!imageUrl) {
       setInputText('');
@@ -900,7 +937,6 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       console.error("Error clearing typing status on send:", err);
     });
 
-    const now = Date.now();
     const messageId = now.toString() + Math.random().toString(36).substring(2, 5);
     
     try {
