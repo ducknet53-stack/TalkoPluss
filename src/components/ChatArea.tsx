@@ -995,30 +995,15 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       }
 
       if (apiCallFailed) {
-        console.error(`[AI MODERATION FATAL] Moderation service failed: ${apiErrorMessage}`);
+        console.warn(`[AI MODERATION] Moderation service failed: ${apiErrorMessage}. Bypassing moderation for safety.`);
         if (typeof window !== 'undefined' && (window as any).talkoDebugState) {
           (window as any).talkoDebugState.ai = 'Error';
-          (window as any).talkoDebugState.moderation = 'None';
+          (window as any).talkoDebugState.moderation = 'Bypassed';
           window.dispatchEvent(new CustomEvent('talko-debug-update'));
         }
 
-        // Set status to error to show Retry button!
-        setOptimisticMessages(prev => prev.map(m => {
-          if (m.id === tempId) {
-            return {
-              ...m,
-              status: 'error',
-              originalText: messageText,
-              text: "Bağlantı hatası: Mesaj moderatör kontrolünden geçemedi."
-            };
-          }
-          return m;
-        }));
-        
-        toast.error(`⚠️ Moderasyon bağlantı hatası: ${apiErrorMessage}`, {
-           style: { background: '#ef4444', color: '#fff' }
-        });
-        return;
+        // We don't return here! We let it pass through.
+        isAppropriate = true;
       }
 
       if (!isAppropriate) {

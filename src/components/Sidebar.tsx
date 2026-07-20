@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, getDocs, setDoc, doc, orderBy, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { LogOut, User as UserIcon, Search, MessageSquarePlus, Moon, Sun, Users, Bell, Bug } from 'lucide-react';
+import { LogOut, User as UserIcon, Search, MessageSquarePlus, Moon, Sun, Users, Bell } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -476,25 +476,6 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
           </button>
           <button onClick={toggleTheme} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors rounded-full hover:bg-gray-50 dark:hover:bg-gray-800">
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-          </button>
-          <button 
-            onClick={() => {
-              const current = localStorage.getItem('talko_debug_mode') === 'true';
-              localStorage.setItem('talko_debug_mode', current ? 'false' : 'true');
-              window.dispatchEvent(new Event('talko-debug-toggle'));
-              import('react-hot-toast').then(({ toast }) => {
-                toast(current ? "Sistem Canlı Sistem Paneli Gizlendi 🐞" : "Sistem Canlı Sistem Paneli Aktif 🐞", { icon: "🐞" });
-              });
-            }}
-            className={cn(
-              "p-2 transition-colors rounded-full hover:bg-gray-50 dark:hover:bg-gray-800",
-              localStorage.getItem('talko_debug_mode') === 'true'
-                ? "text-yellow-500 hover:text-yellow-600"
-                : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            )}
-            title="Sistem Canlı Sistem Panelini Aç/Kapat"
-          >
-            <Bug size={20} />
           </button>
           <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors rounded-full hover:bg-red-50 dark:hover:bg-red-900/20">
             <LogOut size={20} />

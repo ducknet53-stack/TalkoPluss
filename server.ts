@@ -5,6 +5,8 @@ import cors from "cors";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import * as admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 
 const app = express();
 app.use(express.json());
@@ -24,11 +26,11 @@ function getFirebaseAdmin() {
         adminApp = adminApps[0];
       } else {
         const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-        const credentialObj = adminModule.credential || (admin as any).credential;
-        if (saJson && credentialObj) {
+        const certFn = adminModule.cert || (admin as any).cert;
+        if (saJson && certFn) {
           try {
             adminApp = adminModule.initializeApp({
-              credential: credentialObj.cert(JSON.parse(saJson))
+              credential: certFn(JSON.parse(saJson))
             });
           } catch (e: any) {
             console.error("[FIREBASE ADMIN] Failed to initialize with service account JSON, trying default:", e.message);
@@ -38,8 +40,8 @@ function getFirebaseAdmin() {
           adminApp = adminModule.initializeApp();
         }
       }
-      dbAdmin = adminApp.firestore();
-      messagingAdmin = adminApp.messaging();
+      dbAdmin = getFirestore(adminApp);
+      messagingAdmin = getMessaging(adminApp);
       console.log("[FIREBASE ADMIN] SDK loaded successfully.");
     } catch (err: any) {
       console.warn("[FIREBASE ADMIN] Admin SDK initialization bypassed (No default credentials). Fallback local triggers are operational. Detail:", err.message);
