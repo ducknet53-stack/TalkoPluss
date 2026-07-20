@@ -8,6 +8,8 @@ export interface User {
   uid: string;
   username: string;
   usernameLower: string;
+  userHandle?: string;
+  userHandleLower?: string;
   email: string;
   photoURL: string | null;
   about: string;

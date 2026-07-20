@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { X, Camera, Loader2, BadgeCheck, Bell } from 'lucide-react';
+import { X, Camera, Loader2, BadgeCheck, Bell, CheckCircle2, XCircle } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadImage } from '../lib/imgbb';
@@ -17,10 +17,64 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
   const { currentUser, userProfile } = useAuth();
   
   const [username, setUsername] = useState(userProfile?.username || '');
+  const [userHandle, setUserHandle] = useState(userProfile?.userHandle || '');
+  const [handleAvailable, setHandleAvailable] = useState<boolean | null>(null);
+  const [isCheckingHandle, setIsCheckingHandle] = useState(false);
   const [about, setAbout] = useState(userProfile?.about || '');
   const [photoURL, setPhotoURL] = useState(userProfile?.photoURL || '');
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  
+  useEffect(() => {
+    // Only check if it's not empty, not the current one, and follows rules
+    const handle = userHandle.trim().toLowerCase();
+    
+    if (handle === userProfile?.userHandle?.toLowerCase()) {
+      setHandleAvailable(true);
+      return;
+    }
+
+    if (handle.length < 3) {
+      setHandleAvailable(null);
+      return;
+    }
+
+    const checkHandle = async () => {
+      setIsCheckingHandle(true);
+      try {
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('userHandleLower', '==', handle));
+        const querySnapshot = await getDocs(q);
+        
+        if (querySnapshot.empty) {
+          setHandleAvailable(true);
+        } else {
+          setHandleAvailable(false);
+        }
+      } catch (err) {
+        setHandleAvailable(null);
+      } finally {
+        setIsCheckingHandle(false);
+      }
+    };
+
+    const debounce = setTimeout(() => {
+      checkHandle();
+    }, 500);
+
+    return () => clearTimeout(debounce);
+  }, [userHandle, userProfile?.userHandle]);
+
+  const handleHandleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value;
+    if (val.startsWith('@')) {
+      val = val.substring(1);
+    }
+    // Remove spaces, only letters, numbers, _, .
+    val = val.replace(/[^a-zA-Z0-9_.]/g, '');
+    setUserHandle(val);
+    setHandleAvailable(null);
+  };
   
   // Notification states
   const [msgNotif, setMsgNotif] = useState(userProfile?.notificationSettings?.messages !== false);
@@ -89,6 +143,16 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
     e.preventDefault();
     if (!currentUser) return;
     
+    if (userHandle && handleAvailable === false) {
+      toast.error('Bu kullanıcı adı zaten kullanılıyor.');
+      return;
+    }
+
+    if (userHandle && userHandle.length < 3) {
+      toast.error('Kullanıcı adı en az 3 karakter olmalıdır.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -103,7 +167,7 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
         ];
         
         if (reservedNames.some(name => usernameLower.includes(name))) {
-          toast.error("Bu kullanıcı adı alınamaz. Lütfen başka bir ad seçin.");
+          toast.error("Bu ad alınamaz. Lütfen başka bir ad seçin.");
           setLoading(false);
           return;
         }
@@ -113,14 +177,26 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
         const querySnapshot = await getDocs(q);
 
         if (!querySnapshot.empty) {
-          toast.error("Bu kullanıcı adı zaten alınmış.");
+          toast.error("Bu ad zaten alınmış.");
           setLoading(false);
           return;
         }
       }
 
-      const userRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userRef, {
+      // Check handle uniqueness if changed (as a fallback)
+      if (userHandle && userHandle !== userProfile?.userHandle) {
+        const handleLower = userHandle.toLowerCase();
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('userHandleLower', '==', handleLower));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          toast.error("Bu kullanıcı adı zaten kullanılıyor.");
+          setLoading(false);
+          return;
+        }
+      }
+
+      const updateData: any = {
         username,
         usernameLower: username.toLowerCase(),
         about,
@@ -130,7 +206,15 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
           groups: groupNotif,
           events: eventNotif
         }
-      });
+      };
+
+      if (userHandle) {
+        updateData.userHandle = userHandle;
+        updateData.userHandleLower = userHandle.toLowerCase();
+      }
+
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, updateData);
 
       toast.success('Profil güncellendi!');
       onClose();
@@ -160,7 +244,7 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
                   <img src={photoURL} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-gray-400 dark:text-gray-500 text-3xl font-medium">
-                    {username.charAt(0).toUpperCase()}
+                    {username ? username.charAt(0).toUpperCase() : 'K'}
                   </span>
                 )}
               </div>
@@ -172,6 +256,12 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
               >
                 {uploadingImage ? <Loader2 size={24} className="text-white animate-spin" /> : <Camera size={24} className="text-white" />}
               </button>
+            </div>
+            <div className="text-center mt-4 mb-2">
+              <h3 className="font-bold text-gray-900 dark:text-white flex items-center justify-center gap-1.5 text-lg">
+                 {username || 'İsimsiz'} {userProfile?.isVerified && <BadgeCheck size={18} className="text-[#38bdf8] fill-[#38bdf8] dark:fill-none" />}
+              </h3>
+              {userHandle && <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mt-0.5">@{userHandle}</p>}
             </div>
             <input
               type="file"
@@ -185,7 +275,7 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kullanıcı Adı</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Görünen Ad</label>
               <input
                 type="text"
                 value={username}
@@ -194,6 +284,42 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
                 required
                 minLength={3}
               />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kullanıcı Adı</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <span className="text-gray-400 font-medium">@</span>
+                </div>
+                <input
+                  type="text"
+                  value={userHandle}
+                  onChange={handleHandleChange}
+                  placeholder="kullanici_adi"
+                  className="w-full pl-9 pr-10 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all dark:text-white"
+                  minLength={3}
+                />
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                  {isCheckingHandle ? (
+                    <Loader2 size={18} className="text-gray-400 animate-spin" />
+                  ) : handleAvailable === true ? (
+                    <CheckCircle2 size={18} className="text-green-500" />
+                  ) : handleAvailable === false ? (
+                    <XCircle size={18} className="text-red-500" />
+                  ) : null}
+                </div>
+              </div>
+              {handleAvailable === true && userHandle.length >= 3 && (
+                <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
+                  Kullanıcı adı kullanılabilir.
+                </p>
+              )}
+              {handleAvailable === false && (
+                <p className="text-xs text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
+                  Bu kullanıcı adı zaten kullanılıyor.
+                </p>
+              )}
             </div>
             
             <div>

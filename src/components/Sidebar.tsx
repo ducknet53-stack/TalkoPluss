@@ -14,6 +14,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { requestNotificationPermission } from '../lib/notifications';
 import StoriesBar from './StoriesBar';
 import CreateGroupModal from './CreateGroupModal';
+import ProfileCardModal from './ProfileCardModal';
 import { AnimatePresence } from 'motion/react';
 
 interface SidebarProps {
@@ -29,6 +30,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
   const [allUsers, setAllUsers] = useState<User[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [profileModalUserId, setProfileModalUserId] = useState<string | null>(null);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
 
   const prevUnreadCountsRef = React.useRef<Record<string, number>>({});
@@ -413,8 +415,14 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
         onClick={() => startChat(user)}
         className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-xl transition-all duration-200 text-left min-w-0"
       >
-        <div className="relative w-10 h-10 flex-shrink-0">
-          <div className="w-full h-full rounded-full overflow-hidden bg-gray-100 dark:bg-gray-850">
+        <div 
+          className="relative w-10 h-10 flex-shrink-0 cursor-pointer group/avatar"
+          onClick={(e) => {
+            e.stopPropagation();
+            setProfileModalUserId(user.uid);
+          }}
+        >
+          <div className="w-full h-full rounded-full overflow-hidden bg-gray-100 dark:bg-gray-850 ring-2 ring-transparent group-hover/avatar:ring-blue-500 transition-all">
             {user.photoURL ? (
               <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
             ) : (
@@ -434,7 +442,6 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 truncate w-full">{user.about || 'Merhaba!'}</p>
         </div>
-        <MessageSquarePlus size={18} className="text-blue-500 dark:text-blue-400 flex-shrink-0 ml-2" />
       </button>
     );
   };
@@ -444,7 +451,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
       {/* Header */}
       <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between min-w-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <button onClick={onOpenProfile} className="relative group focus:outline-none flex-shrink-0">
+          <button onClick={() => setProfileModalUserId(currentUser?.uid || null)} className="relative group focus:outline-none flex-shrink-0">
             <div className="relative w-10 h-10">
               <div className="w-full h-full rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700">
                 {userProfile?.photoURL ? (
@@ -461,9 +468,13 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
               <span className="absolute bottom-0 right-0 block w-3 h-3 rounded-full bg-green-500 border-2 border-white dark:border-gray-900 shadow-sm z-20" />
             </div>
           </button>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 flex flex-col justify-center">
             <h2 className="font-semibold text-gray-900 dark:text-white leading-tight truncate">{userProfile?.username || 'Yükleniyor...'}</h2>
-            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Çevrimiçi</p>
+            {userProfile?.userHandle ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{userProfile.userHandle}</p>
+            ) : (
+              <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Çevrimiçi</p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
@@ -623,6 +634,21 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
           />
         )}
       </AnimatePresence>
+
+      {profileModalUserId && (
+        <ProfileCardModal
+          userId={profileModalUserId}
+          onClose={() => setProfileModalUserId(null)}
+          onEditProfile={onOpenProfile}
+          onSendMessage={(id) => {
+            setProfileModalUserId(null);
+            const userObj = allUsers?.find(u => u.uid === id);
+            if (userObj) {
+              startChat(userObj);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

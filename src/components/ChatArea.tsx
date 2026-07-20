@@ -125,6 +125,8 @@ function renderMarkdown(text: string): ReactNode {
   );
 }
 
+import ProfileCardModal from './ProfileCardModal';
+
 interface ChatAreaProps {
   key?: string;
   chat: Chat;
@@ -213,6 +215,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   const isVerified = isSystemChat || isAiChat || (otherUserDetails?.isVerified || false);
 
   const [isBlockMenuOpen, setIsBlockMenuOpen] = useState(false);
+  const [profileModalUserId, setProfileModalUserId] = useState<string | null>(null);
   const [selectedMessageForReport, setSelectedMessageForReport] = useState<Message | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState<string>('');
@@ -1360,9 +1363,19 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-gray-900 relative transition-colors">
       <div className="px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between shadow-sm z-10 min-w-0">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div 
+          className={cn(
+            "flex items-center gap-3 min-w-0 flex-1",
+            !liveChat.isGroup && !isSystemChat && !isAiChat ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg p-1 -ml-1 transition-colors" : ""
+          )}
+          onClick={() => {
+            if (!liveChat.isGroup && !isSystemChat && !isAiChat && otherUserId) {
+              setProfileModalUserId(otherUserId);
+            }
+          }}
+        >
           <button 
-            onClick={onBack}
+            onClick={(e) => { e.stopPropagation(); onBack(); }}
             className="md:hidden p-2 -ml-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors flex-shrink-0"
           >
             <ArrowLeft size={20} />
@@ -2104,6 +2117,22 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {profileModalUserId && (
+        <ProfileCardModal 
+          userId={profileModalUserId} 
+          onClose={() => setProfileModalUserId(null)}
+          onEditProfile={() => {
+            // Can be implemented if needed, but not necessary here since this is ChatArea
+            // We can dispatch an event to open the profile edit modal
+            window.dispatchEvent(new CustomEvent('open-profile-modal'));
+          }}
+          onSendMessage={(id) => {
+            // Already in chat with this user
+            setProfileModalUserId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
