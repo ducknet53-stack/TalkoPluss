@@ -31,6 +31,54 @@ const TEXT_COLORS = [
   { id: '#f97316', name: 'Turuncu', className: 'bg-orange-500' }
 ];
 
+function resizeAndCompressImage(file: File, maxDimension: number, quality: number = 0.8): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxDimension) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          }
+        } else {
+          if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context could not be created'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Canvas toBlob returned null'));
+          }
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = (err) => reject(err);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function CreateStoryModal({ onClose }: CreateStoryModalProps) {
   const { currentUser, userProfile } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -61,9 +109,25 @@ export default function CreateStoryModal({ onClose }: CreateStoryModalProps) {
     const toastId = toast.loading('Durum paylaşılıyor...');
 
     try {
-      const url = await uploadImage(selectedFile);
-      if (!url) {
-        throw new Error('Görsel yüklenemedi.');
+      // 1. Create compressed thumbnail (max 400px width/height, 0.6 quality)
+      const thumbnailBlob = await resizeAndCompressImage(selectedFile, 400, 0.6);
+      const thumbnailFile = new File([thumbnailBlob], 'thumbnail.jpg', { type: 'image/jpeg' });
+
+      // 2. Create high quality original (max 1080px width/height, 0.85 quality)
+      const originalBlob = await resizeAndCompressImage(selectedFile, 1080, 0.85);
+      const originalFile = new File([originalBlob], 'original.jpg', { type: 'image/jpeg' });
+
+      // Upload both in parallel
+      const [thumbUrl, originalUrl] = await Promise.all([
+        uploadImage(thumbnailFile).catch(err => {
+          console.error("Error uploading thumbnail:", err);
+          return null;
+        }),
+        uploadImage(originalFile)
+      ]);
+
+      if (!originalUrl) {
+        throw new Error('Yüksek kaliteli görsel yüklenemedi.');
       }
 
       const storyId = doc(collection(db, 'stories')).id;
@@ -74,7 +138,8 @@ export default function CreateStoryModal({ onClose }: CreateStoryModalProps) {
         userId: currentUser.uid,
         username: userProfile?.username || 'Kullanıcı',
         userPhotoURL: userProfile?.photoURL || null,
-        imageUrl: url,
+        imageUrl: originalUrl,
+        thumbnailUrl: thumbUrl || originalUrl,
         text: text.trim() || null,
         textColor,
         textStyle,

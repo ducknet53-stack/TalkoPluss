@@ -89,6 +89,7 @@ export interface Story {
   username: string;
   userPhotoURL: string | null;
   imageUrl: string;
+  thumbnailUrl?: string;
   text: string | null;
   textColor: string;
   textStyle: string;

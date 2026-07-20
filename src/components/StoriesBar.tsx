@@ -26,6 +26,24 @@ export default function StoriesBar() {
       // Filter stories that haven't expired yet
       const activeStories = fetchedStories.filter(story => story.expiresAt > now);
       setStories(activeStories);
+
+      // Background prefetching for high-performance instant loading
+      try {
+        const storiesToPrefetch = activeStories.slice(0, 10);
+        storiesToPrefetch.forEach(story => {
+          const thumbUrl = story.thumbnailUrl || story.imageUrl;
+          if (thumbUrl) {
+            const thumbImg = new Image();
+            thumbImg.src = thumbUrl;
+          }
+          if (story.imageUrl) {
+            const origImg = new Image();
+            origImg.src = story.imageUrl;
+          }
+        });
+      } catch (err) {
+        console.error("Error prefetching story images:", err);
+      }
     }, (err) => {
       console.error("Stories fetch error:", err);
     });

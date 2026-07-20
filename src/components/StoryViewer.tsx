@@ -38,6 +38,7 @@ export default function StoryViewer({ stories, initialUserIndex, onClose }: Stor
   const [userIndex, setUserIndex] = useState(initialUserIndex);
   const [storyIndex, setStoryIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [isFullImageLoaded, setIsFullImageLoaded] = useState(false);
 
   const activeUserId = userIds[userIndex];
   const activeUserStories = groupedStories[activeUserId] || [];
@@ -75,7 +76,16 @@ export default function StoryViewer({ stories, initialUserIndex, onClose }: Stor
 
   useEffect(() => {
     setProgress(0);
-  }, [userIndex, storyIndex]);
+    if (!activeStory) return;
+
+    setIsFullImageLoaded(false);
+
+    const img = new Image();
+    img.src = activeStory.imageUrl;
+    img.onload = () => {
+      setIsFullImageLoaded(true);
+    };
+  }, [userIndex, storyIndex, activeStory?.imageUrl]);
 
   useEffect(() => {
     // Progress interval (100ms interval for smooth progression)
@@ -105,8 +115,8 @@ export default function StoryViewer({ stories, initialUserIndex, onClose }: Stor
     <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center select-none">
       {/* Background Blur */}
       <div 
-        className="absolute inset-0 bg-cover bg-center blur-2xl opacity-20 pointer-events-none" 
-        style={{ backgroundImage: `url(${activeStory.imageUrl})` }}
+        className="absolute inset-0 bg-cover bg-center blur-2xl opacity-20 pointer-events-none transition-all duration-500" 
+        style={{ backgroundImage: `url(${isFullImageLoaded ? activeStory.imageUrl : (activeStory.thumbnailUrl || activeStory.imageUrl)})` }}
       />
 
       {/* Main Container */}
@@ -175,16 +185,26 @@ export default function StoryViewer({ stories, initialUserIndex, onClose }: Stor
         </div>
 
         {/* Story Photo and Text */}
-        <div className="flex-1 flex items-center justify-center relative w-full h-full">
+        <div className="flex-1 flex items-center justify-center relative w-full h-full bg-black">
+          {/* 1. Low quality thumbnail (loaded instantly) */}
+          <img 
+            src={activeStory.thumbnailUrl || activeStory.imageUrl} 
+            alt="Story Thumbnail" 
+            className="w-full h-full object-cover select-none pointer-events-none absolute inset-0 filter blur-xs scale-105" 
+          />
+
+          {/* 2. High quality original (faded in once fully loaded) */}
           <img 
             src={activeStory.imageUrl} 
             alt="Story Content" 
-            className="w-full h-full object-cover select-none pointer-events-none" 
+            className={`w-full h-full object-cover select-none pointer-events-none absolute inset-0 transition-opacity duration-500 ease-out ${
+              isFullImageLoaded ? 'opacity-100' : 'opacity-0'
+            }`} 
           />
 
           {/* Styled Text Overlay */}
           {activeStory.text && (
-            <div className="absolute inset-0 flex items-center justify-center p-6 bg-black/10 text-center select-none pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center p-6 bg-black/10 text-center select-none pointer-events-none z-10">
               <p 
                 style={{ color: activeStory.textColor }}
                 className={`text-center break-words text-xl md:text-2xl font-black select-none tracking-normal drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)] max-w-full ${selectedStyleClass}`}
