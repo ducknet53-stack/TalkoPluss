@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, MessageSquare, Edit2 } from 'lucide-react';
+import { X, MessageSquare, Edit2, Settings } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,6 +10,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { SYSTEM_USER_ID, TALKO_AI_USER_ID } from '../lib/systemAccount';
 import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
+import SettingsModal from './SettingsModal';
 
 interface ProfileCardModalProps {
   userId: string;
@@ -24,6 +25,7 @@ export default function ProfileCardModal({ userId, onClose, onEditProfile, onSen
   const [loading, setLoading] = useState(true);
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'videos' | 'likes'>('videos');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -71,20 +73,30 @@ export default function ProfileCardModal({ userId, onClose, onEditProfile, onSen
   const hasLongBio = bioLines.length > 2 || (user.about && user.about.length > 90);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
-      <div 
-        className="w-full max-w-[400px] bg-white dark:bg-gray-900 rounded-[32px] overflow-hidden shadow-2xl relative transition-all duration-300"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header / Cover Area */}
-        <div className="h-32 bg-gradient-to-r from-blue-500 to-cyan-500 relative">
-          <button 
-            onClick={onClose} 
-            className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+        <div 
+          className="w-full max-w-[400px] bg-white dark:bg-gray-900 rounded-[32px] overflow-hidden shadow-2xl relative transition-all duration-300"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header / Cover Area */}
+          <div className="h-32 bg-gradient-to-r from-blue-500 to-cyan-500 relative">
+            {isOwnProfile && (
+              <button 
+                onClick={() => setIsSettingsOpen(true)} 
+                className="absolute top-4 right-14 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md transition-colors"
+                title="Ayarlar"
+              >
+                <Settings size={20} />
+              </button>
+            )}
+            <button 
+              onClick={onClose} 
+              className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
 
         {/* Profile Info */}
         <div className="px-6 pb-6 relative">
@@ -239,5 +251,9 @@ export default function ProfileCardModal({ userId, onClose, onEditProfile, onSen
         </div>
       </div>
     </div>
+    {isSettingsOpen && (
+      <SettingsModal onClose={() => setIsSettingsOpen(false)} />
+    )}
+    </>
   );
 }

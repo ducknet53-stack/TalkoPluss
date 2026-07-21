@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { X, Camera, Loader2, BadgeCheck, Bell, CheckCircle2, XCircle } from 'lucide-react';
-import { db } from '../lib/firebase';
+import { doc, updateDoc, collection, query, where, getDocs, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { X, Camera, Loader2, BadgeCheck, Bell, CheckCircle2, XCircle, Smartphone, Monitor, Lock, LogOut } from 'lucide-react';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { db, auth } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadImage } from '../lib/imgbb';
 import { TALKO_VERIFIED_SVG } from '../lib/assets';
 import { requestNotificationPermission } from '../lib/notifications';
+import { formatDistanceToNow } from 'date-fns';
+import { tr } from 'date-fns/locale';
 import toast from 'react-hot-toast';
 
 interface ProfileModalProps {
@@ -14,7 +17,7 @@ interface ProfileModalProps {
 }
 
 export default function ProfileModal({ onClose }: ProfileModalProps) {
-  const { currentUser, userProfile } = useAuth();
+  const { currentUser, userProfile, deviceId: currentDeviceId } = useAuth();
   
   const [username, setUsername] = useState(userProfile?.username || '');
   const [userHandle, setUserHandle] = useState(userProfile?.userHandle || '');
@@ -24,7 +27,7 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
   const [photoURL, setPhotoURL] = useState(userProfile?.photoURL || '');
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  
+
   useEffect(() => {
     // Only check if it's not empty, not the current one, and follows rules
     const handle = userHandle.trim().toLowerCase();
@@ -472,6 +475,7 @@ export default function ProfileModal({ onClose }: ProfileModalProps) {
                 </div>
               )}
             </div>
+
           </div>
 
           <div className="pt-2">

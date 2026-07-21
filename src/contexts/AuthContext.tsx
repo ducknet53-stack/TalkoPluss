@@ -5,29 +5,49 @@ import { doc, getDoc, onSnapshot, setDoc, updateDoc, serverTimestamp } from 'fir
 import { auth, db } from '../lib/firebase';
 import { User } from '../types';
 import { ensureSystemAccount, sendWelcomeMessageIfNeeded } from '../lib/systemAccount';
+import { UAParser } from 'ua-parser-js';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
   userProfile: User | null;
   loading: boolean;
+  deviceId: string | null;
 }
 
 const AuthContext = createContext<AuthContextType>({
   currentUser: null,
   userProfile: null,
   loading: true,
+  deviceId: null,
 });
 
 export const useAuth = () => useContext(AuthContext);
+
+// Generate a random device ID
+const generateDeviceId = () => {
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
+
+// Get or create device ID
+const getDeviceId = () => {
+  let id = localStorage.getItem('talko_device_id');
+  if (!id) {
+    id = generateDeviceId();
+    localStorage.setItem('talko_device_id', id);
+  }
+  return id;
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
   const userProfileRef = useRef<User | null>(null);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
+    let unsubscribeDevice: (() => void) | null = null;
     let cleanupEvents: (() => void) | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
@@ -35,6 +55,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (unsubscribeProfile) {
         unsubscribeProfile();
         unsubscribeProfile = null;
+      }
+      if (unsubscribeDevice) {
+        unsubscribeDevice();
+        unsubscribeDevice = null;
       }
       if (cleanupEvents) {
         cleanupEvents();
@@ -45,13 +69,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (user) {
         const userRef = doc(db, 'users', user.uid);
-        
+        const currentDeviceId = getDeviceId();
+        setDeviceId(currentDeviceId);
+
         // Auto-elevate developer email as admin in Firestore database
         if (user.email === 'ducknet53@gmail.com') {
           await setDoc(userRef, { isAdmin: true }, { merge: true })
             .catch(err => console.error("Could not auto-elevate admin status:", err));
         }
         
+        // Register device
+        const parser = new UAParser();
+        const result = parser.getResult();
+        const deviceName = result.device.model || result.os.name || 'Bilinmeyen Cihaz';
+        const browser = result.browser.name || 'Bilinmeyen Tarayıcı';
+        const platform = result.os.name || 'Bilinmeyen Platform';
+
+        const deviceRef = doc(db, 'users', user.uid, 'devices', currentDeviceId);
+        await setDoc(deviceRef, {
+          deviceName,
+          browser,
+          platform,
+          lastActive: serverTimestamp(),
+          isRevoked: false,
+          userAgent: navigator.userAgent
+        }, { merge: true }).catch(err => console.error("Device registration error:", err));
+
+        // Listen for device revocation
+        unsubscribeDevice = onSnapshot(deviceRef, (docSnap) => {
+          if (docSnap.exists() && docSnap.data().isRevoked === true) {
+            // Device revoked, sign out
+            auth.signOut().then(() => {
+              window.location.href = '/';
+            });
+          }
+        });
+
         let welcomeChecked = false;
         let isInitialLoad = true;
         // Listen to profile updates
@@ -197,7 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ currentUser, userProfile, loading }}>
+    <AuthContext.Provider value={{ currentUser, userProfile, loading, deviceId }}>
       {!loading && children}
     </AuthContext.Provider>
   );
