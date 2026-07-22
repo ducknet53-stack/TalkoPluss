@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, Component, ReactNode } from 'react';
+import React, { useState, useEffect, Component, ReactNode } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -23,11 +23,21 @@ interface ErrorBoundaryState {
   error?: Error;
 }
 
-class GlobalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class GlobalErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  props: ErrorBoundaryProps;
+  state: ErrorBoundaryState = {
+    hasError: false
+  };
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false };
+    this.props = props;
   }
+
+  handleReset = () => {
+    this.state = { hasError: false };
+    window.location.reload();
+  };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
@@ -48,10 +58,7 @@ class GlobalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
             </p>
             <div className="flex gap-3 justify-center pt-2">
               <button
-                onClick={() => {
-                  this.setState({ hasError: false });
-                  window.location.reload();
-                }}
+                onClick={this.handleReset}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-bold text-white transition-all shadow-lg shadow-blue-600/20"
               >
                 Sayfayı Yenile
@@ -86,8 +93,9 @@ if (typeof window !== 'undefined') {
 }
 
 function AppContent() {
-  const { currentUser, userProfile } = useAuth();
+  const { currentUser, userProfile, loading } = useAuth();
   const checkIsAdmin = () => {
+    if (typeof window === 'undefined') return false;
     const hash = (window.location.hash || '').toLowerCase();
     const path = (window.location.pathname || '').toLowerCase();
     return hash.includes('admin') || path.endsWith('/admin') || path.includes('/admin/');
@@ -113,7 +121,7 @@ function AppContent() {
           const { doc, updateDoc } = await import('firebase/firestore');
           const { db } = await import('./lib/firebase');
           await updateDoc(doc(db, 'users', userProfile.uid), { isAdmin: true });
-          console.log("Granted admin to The_Goku automatically.");
+          console.log("Granted admin to developer account automatically.");
         } catch (e) {
           console.error("Failed to auto-grant admin:", e);
         }
@@ -185,8 +193,28 @@ function AppContent() {
     }
   }, [userProfile?.isAdmin]);
 
+  // Routing for Admin Panel
   if (isAdminHash) {
+    if (loading) {
+      return (
+        <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none font-sans z-50">
+          <div className="w-10 h-10 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin mb-4" />
+          <h2 className="text-lg font-bold text-slate-200">Yönetim Paneli Yükleniyor...</h2>
+          <p className="text-xs text-slate-400 mt-1">Sistem yetkileri kontrol ediliyor</p>
+        </div>
+      );
+    }
     return <AdminPanel />;
+  }
+
+  // General App Loading
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none font-sans z-50">
+        <div className="w-10 h-10 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin mb-4" />
+        <h2 className="text-lg font-bold text-slate-200">Talko Yükleniyor...</h2>
+      </div>
+    );
   }
 
   if (!currentUser) {
