@@ -40,6 +40,19 @@ import { cn } from "../lib/utils";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
 
+const safeFormatDate = (timestamp: any, formatStr: string) => {
+  if (!timestamp) return "Tarih yok";
+  try {
+    const d = typeof timestamp === "number"
+      ? new Date(timestamp)
+      : (timestamp?.toDate ? timestamp.toDate() : new Date(timestamp));
+    if (isNaN(d.getTime())) return "Geçersiz tarih";
+    return format(d, formatStr, { locale: tr });
+  } catch (e) {
+    return "Tarih yok";
+  }
+};
+
 export default function AdminPanel() {
   const { currentUser } = useAuth();
   const [password, setPassword] = useState("");
@@ -149,7 +162,9 @@ export default function AdminPanel() {
           const bOnline = b.isOnline || (b as any).online || false;
           if (aOnline && !bOnline) return -1;
           if (!aOnline && bOnline) return 1;
-          return a.username.localeCompare(b.username, "tr");
+          const nameA = a.username || a.displayName || "";
+          const nameB = b.username || b.displayName || "";
+          return nameA.localeCompare(nameB, "tr");
         });
         setUsers(fetchedUsers);
       },
@@ -170,7 +185,7 @@ export default function AdminPanel() {
       chatsRef,
       (snapshot) => {
         const fetchedChats = snapshot.docs.map((doc) => doc.data() as Chat);
-        fetchedChats.sort((a, b) => b.updatedAt - a.updatedAt);
+        fetchedChats.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         setChats(fetchedChats);
       },
       (error) => {
@@ -488,16 +503,17 @@ export default function AdminPanel() {
   // Filter users lists
   const filteredUsers = users.filter(
     (u) =>
-      u.username?.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
-      u.email?.toLowerCase().includes(searchUserQuery.toLowerCase()),
+      (u.username || u.displayName || "").toLowerCase().includes(searchUserQuery.toLowerCase()) ||
+      (u.email || "").toLowerCase().includes(searchUserQuery.toLowerCase()),
   );
 
   const filteredChats = chats.filter((chat) => {
-    const participantsNames = chat.participants
+    const participants = chat.participants || [];
+    const participantsNames = participants
       .map((pId) => {
-        if (pId === "system_talko_destek") return "Talko Destek";
+        if (pId === "system_talko_destek" || pId === "system_talko_ai") return "Talko Sistem";
         const userObj = users.find((u) => u.uid === pId);
-        return userObj ? userObj.username : pId;
+        return userObj ? (userObj.username || userObj.displayName || pId) : pId;
       })
       .join(" ");
 
@@ -906,11 +922,11 @@ export default function AdminPanel() {
             ) : activeTab === "chats" ? (
               filteredChats.length > 0 ? (
                 filteredChats.map((chat) => {
-                  const pNames = chat.participants
+                  const pNames = (chat.participants || [])
                     .map((pId) => {
-                      if (pId === "system_talko_destek") return "Talko Destek";
+                      if (pId === "system_talko_destek" || pId === "system_talko_ai") return "Talko Sistem";
                       const userObj = users.find((u) => u.uid === pId);
-                      return userObj ? userObj.username : pId;
+                      return userObj ? (userObj.username || userObj.displayName || pId) : pId;
                     })
                     .join(" ↔ ");
 
@@ -937,9 +953,7 @@ export default function AdminPanel() {
                         <span className="inline-block mt-2 text-[10px] text-slate-500 flex items-center gap-1">
                           <Clock size={10} />
                           Güncelleme:{" "}
-                          {format(chat.updatedAt, "dd MMM HH:mm", {
-                            locale: tr,
-                          })}
+                          {safeFormatDate(chat.updatedAt, "dd MMM HH:mm")}
                         </span>
                       </div>
                       <Eye
@@ -1137,13 +1151,11 @@ export default function AdminPanel() {
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h4 className="font-bold text-white text-md">
-                          {verif.username}
+                          {verif.username || verif.email || "Kullanıcı"}
                         </h4>
-                        <p className="text-sm text-slate-400">{verif.email}</p>
+                        <p className="text-sm text-slate-400">{verif.email || ""}</p>
                         <p className="text-xs text-slate-500 mt-1">
-                          {format(verif.createdAt, "dd MMM yyyy HH:mm", {
-                            locale: tr,
-                          })}
+                          {safeFormatDate(verif.createdAt, "dd MMM yyyy HH:mm")}
                         </p>
                       </div>
                       {verif.status === "pending" ? (
@@ -1181,7 +1193,7 @@ export default function AdminPanel() {
                       )}
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {verif.photos.map((photo: string, idx: number) => (
+                      {(verif.photos || []).map((photo: string, idx: number) => (
                         <img
                           key={idx}
                           src={photo}
@@ -1222,7 +1234,7 @@ export default function AdminPanel() {
                           </span>
                         </div>
                         <div className="text-[10px] text-slate-500 mt-1 font-mono flex items-center gap-2">
-                          <span>{format(log.timestamp, "dd MMM yyyy HH:mm", { locale: tr })}</span>
+                          <span>{safeFormatDate(log.timestamp, "dd MMM yyyy HH:mm")}</span>
                           <span>•</span>
                           <span>ID: {log.userId}</span>
                           <span>•</span>
@@ -1252,12 +1264,12 @@ export default function AdminPanel() {
               <div className="px-5 py-4 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
                 <div>
                   <h3 className="font-bold text-white text-sm">
-                    {selectedChat.participants
+                    {(selectedChat.participants || [])
                       .map((pId) => {
-                        if (pId === "system_talko_destek")
-                          return "Talko Destek";
+                        if (pId === "system_talko_destek" || pId === "system_talko_ai")
+                          return "Talko Sistem";
                         const userObj = users.find((u) => u.uid === pId);
-                        return userObj ? userObj.username : pId;
+                        return userObj ? (userObj.username || userObj.displayName || pId) : pId;
                       })
                       .join(" ↔ ")}
                   </h3>
@@ -1266,7 +1278,7 @@ export default function AdminPanel() {
                   </p>
                 </div>
                 <div className="text-xs bg-slate-800 px-2.5 py-1 rounded-full text-slate-400 border border-slate-700/60 font-mono">
-                  ID: {selectedChat.id.substring(0, 12)}...
+                  ID: {selectedChat.id ? selectedChat.id.substring(0, 12) : ""}...
                 </div>
               </div>
 
@@ -1276,12 +1288,12 @@ export default function AdminPanel() {
                   selectedChatMessages.map((msg) => {
                     const sender = users.find((u) => u.uid === msg.senderId);
                     const senderName =
-                      msg.senderId === "system_talko_destek"
-                        ? "Talko Destek"
+                      msg.senderId === "system_talko_destek" || msg.senderId === "system_talko_ai"
+                        ? "Talko Sistem"
                         : sender
-                          ? sender.username
+                          ? (sender.username || sender.displayName || "Kullanıcı")
                           : "Bilinmeyen Kullanıcı";
-                    const isSystem = msg.senderId === "system_talko_destek";
+                    const isSystem = msg.senderId === "system_talko_destek" || msg.senderId === "system_talko_ai";
 
                     return (
                       <div
@@ -1304,7 +1316,7 @@ export default function AdminPanel() {
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs font-bold">
-                              {senderName.substring(0, 2).toUpperCase()}
+                              {(senderName || "U").substring(0, 2).toUpperCase()}
                             </div>
                           )}
                         </div>
@@ -1319,7 +1331,7 @@ export default function AdminPanel() {
                               {senderName}
                             </span>
                             <span className="text-[10px] text-slate-500 font-mono">
-                              {format(msg.timestamp, "dd/MM/yyyy HH:mm:ss")}
+                              {safeFormatDate(msg.timestamp, "dd/MM/yyyy HH:mm:ss")}
                             </span>
                           </div>
                           {msg.imageUrl && (

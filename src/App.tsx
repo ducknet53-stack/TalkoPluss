@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component, ReactNode } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -13,6 +13,66 @@ import AdminPanel from './components/AdminPanel';
 import BannedScreen from './components/BannedScreen';
 import SplashScreen from './components/SplashScreen';
 import { motion, AnimatePresence } from 'motion/react';
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+class AdminErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("AdminPanel Error Boundary caught an error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center z-50 font-sans">
+          <div className="max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <h2 className="text-xl font-bold text-red-400">Yönetim Paneli Yüklenirken Hata Oluştu</h2>
+            <p className="text-xs text-slate-400 break-words font-mono bg-slate-950 p-3 rounded-lg border border-slate-800">
+              {this.state.error?.message || "Bilinmeyen bir hata meydana geldi."}
+            </p>
+            <div className="flex gap-3 justify-center pt-2">
+              <button
+                onClick={() => {
+                  this.setState({ hasError: false });
+                  window.location.reload();
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-bold text-white transition-all shadow-lg shadow-blue-600/20"
+              >
+                Yeniden Yükle
+              </button>
+              <button
+                onClick={() => {
+                  window.location.hash = "";
+                  window.location.pathname = "/";
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm font-medium text-slate-300 transition-all border border-slate-700"
+              >
+                Sohbete Dön
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Initialize global debug state
 if (typeof window !== 'undefined') {
@@ -28,14 +88,23 @@ if (typeof window !== 'undefined') {
 
 function AppContent() {
   const { currentUser, userProfile } = useAuth();
-  const [isAdminHash, setIsAdminHash] = useState(window.location.hash.startsWith('#/admin'));
+  const checkIsAdmin = () => {
+    const hash = (window.location.hash || '').toLowerCase();
+    const path = (window.location.pathname || '').toLowerCase();
+    return hash.includes('admin') || path.endsWith('/admin') || path.includes('/admin/');
+  };
+  const [isAdminHash, setIsAdminHash] = useState(checkIsAdmin);
 
   useEffect(() => {
-    const handleHashChange = () => {
-      setIsAdminHash(window.location.hash.startsWith('#/admin'));
+    const handleLocationChange = () => {
+      setIsAdminHash(checkIsAdmin());
     };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    window.addEventListener('hashchange', handleLocationChange);
+    window.addEventListener('popstate', handleLocationChange);
+    return () => {
+      window.removeEventListener('hashchange', handleLocationChange);
+      window.removeEventListener('popstate', handleLocationChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -118,7 +187,11 @@ function AppContent() {
   }, [userProfile?.isAdmin]);
 
   if (isAdminHash) {
-    return <AdminPanel />;
+    return (
+      <AdminErrorBoundary>
+        <AdminPanel />
+      </AdminErrorBoundary>
+    );
   }
 
   if (!currentUser) {
