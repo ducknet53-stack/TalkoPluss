@@ -39,6 +39,22 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    const grantAdminToGoku = async () => {
+      if (userProfile && (userProfile.username === 'The_Goku' || userProfile.username === 'the_goku' || userProfile.usernameLower === 'the_goku') && !userProfile.isAdmin) {
+        try {
+          const { doc, updateDoc } = await import('firebase/firestore');
+          const { db } = await import('./lib/firebase');
+          await updateDoc(doc(db, 'users', userProfile.uid), { isAdmin: true });
+          console.log("Granted admin to The_Goku automatically.");
+        } catch (e) {
+          console.error("Failed to auto-grant admin:", e);
+        }
+      }
+    };
+    grantAdminToGoku();
+  }, [userProfile]);
+
+  useEffect(() => {
     if (userProfile?.isAdmin && !localStorage.getItem('removed_hasan1_roblox_bluetick_v2')) {
       localStorage.setItem('removed_hasan1_roblox_bluetick_v2', 'true');
       const run = async () => {

@@ -32,7 +32,7 @@ import {
   Bell,
   Camera,
   Star,
-  ShieldAlert,
+  ShieldAlert, Shield,
 } from "lucide-react";
 import { TALKO_LOGO_DATA_URL } from "../lib/assets";
 import toast from "react-hot-toast";
@@ -223,6 +223,27 @@ export default function AdminPanel() {
 
     return () => unsubscribe();
   }, [isAuthorized]);
+
+  // Admin user action
+  const handleToggleAdmin = async (user: User) => {
+    const userRef = doc(db, "users", user.uid);
+    const willBeAdmin = !user.isAdmin;
+
+    try {
+      await updateDoc(userRef, {
+        isAdmin: willBeAdmin,
+      });
+
+      toast.success(
+        willBeAdmin
+          ? `${user.username} admin yapıldı.`
+          : `${user.username} admin yetkisi alındı.`,
+      );
+    } catch (err: any) {
+      console.error("Error toggling admin status:", err);
+      toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
+    }
+  };
 
   // Ban/Unban user action
   const handleToggleBan = async (user: User) => {
@@ -841,6 +862,19 @@ export default function AdminPanel() {
                             className={user.isVerified ? "" : "fill-current"}
                           />
                           {user.isVerified ? "Verified Kaldır" : (user.blueTickStatus === 'pending' ? "Talebi Onayla" : "Verified Ver")}
+                        </button>
+                        <button
+                          onClick={() => handleToggleAdmin(user)}
+                          className={cn(
+                            "p-2 rounded-lg border transition-all text-xs font-semibold flex items-center justify-center gap-1.5",
+                            user.isAdmin
+                              ? "bg-amber-950/30 border-amber-900/40 text-amber-400 hover:bg-amber-950/60"
+                              : "bg-indigo-950/30 border-indigo-900/40 text-indigo-400 hover:bg-indigo-950/60",
+                          )}
+                          title={user.isAdmin ? "Admin Yetkisini Al" : "Admin Yap"}
+                        >
+                          <Shield size={14} />
+                          {user.isAdmin ? "Admin Al" : "Admin Yap"}
                         </button>
                         <button
                           onClick={() => handleToggleBan(user)}

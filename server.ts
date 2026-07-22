@@ -208,10 +208,10 @@ Görev:
 
     // 2. Fall back to Gemini if OpenAI failed or GITHUB_TOKEN is not defined
     if (!result) {
-      console.log("[MODERATION] Attempting Gemini API (gemini-2.5-flash)...");
+      console.log("[MODERATION] Attempting Gemini API (gemini-2.0-flash)...");
       try {
         const response = await geminiClient.models.generateContent({
-          model: "gemini-2.5-flash",
+          model: "gemini-2.0-flash",
           contents: [{
             role: "user",
             parts: [{ 
@@ -339,7 +339,7 @@ app.post("/api/ai/chat", async (req, res) => {
 
     // Fallback to Gemini
     if (!streamSucceeded) {
-      console.log("[CHAT API] Attempting Gemini API fallback (gemini-2.5-flash)...");
+      console.log("[CHAT API] Attempting Gemini API fallback (gemini-2.0-flash)...");
       try {
         const geminiHistory = history.map((msg: any) => ({
           role: msg.role === "user" ? "user" : "model",
@@ -349,7 +349,7 @@ app.post("/api/ai/chat", async (req, res) => {
         geminiHistory.push({ role: "user", parts: [{ text: message }] });
 
         const responseStream = await geminiClient.models.generateContentStream({
-          model: "gemini-2.5-flash",
+          model: "gemini-2.0-flash",
           contents: geminiHistory,
           systemInstruction: { parts: [{ text: systemPrompt }] }
         });
