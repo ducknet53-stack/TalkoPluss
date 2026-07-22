@@ -224,16 +224,31 @@ export default function AdminPanel() {
     return () => unsubscribe();
   }, [isAuthorized]);
 
+  const adminBatch = async (writes: any[]) => {
+    const token = await auth.currentUser?.getIdToken();
+    const res = await fetch('/api/admin/batch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ writes })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Server error');
+    }
+  };
+
   // Admin user action
   const handleToggleAdmin = async (user: User) => {
-    const userRef = doc(db, "users", user.uid);
     const willBeAdmin = !user.isAdmin;
-
     try {
-      await updateDoc(userRef, {
-        isAdmin: willBeAdmin,
-      });
-
+      await adminBatch([{
+        type: 'update',
+        path: `users/${user.uid}`,
+        data: { isAdmin: willBeAdmin }
+      }]);
       toast.success(
         willBeAdmin
           ? `${user.username} admin yapıldı.`
@@ -247,17 +262,18 @@ export default function AdminPanel() {
 
   // Ban/Unban user action
   const handleToggleBan = async (user: User) => {
-    const userRef = doc(db, "users", user.uid);
     const willBan = !user.isBanned;
-
     try {
-      await updateDoc(userRef, {
-        isBanned: willBan,
-        bannedAt: willBan ? Date.now() : null,
-        isOnline: false,
-        online: false,
-      });
-
+      await adminBatch([{
+        type: "update",
+        path: `users/${user.uid}`,
+        data: {
+          isBanned: willBan,
+          bannedAt: willBan ? Date.now() : null,
+          isOnline: false,
+          online: false,
+        }
+      }]);
       toast.success(
         willBan
           ? `${user.username} başarıyla engellendi.`
@@ -270,15 +286,16 @@ export default function AdminPanel() {
   };
 
   const handleToggleVerified = async (user: User) => {
-    const userRef = doc(db, "users", user.uid);
     const willVerify = !user.isVerified;
-
     try {
-      await updateDoc(userRef, {
-        isVerified: willVerify,
-        blueTickStatus: willVerify ? "approved" : null,
-      });
-
+      await adminBatch([{
+        type: "update",
+        path: `users/${user.uid}`,
+        data: {
+          isVerified: willVerify,
+          blueTickStatus: willVerify ? "approved" : null,
+        }
+      }]);
       toast.success(
         willVerify
           ? `${user.username} Talko Verified yapıldı.`
@@ -291,90 +308,72 @@ export default function AdminPanel() {
   };
 
   const handleRejectBlueTick = async (user: User) => {
-    const userRef = doc(db, "users", user.uid);
-
     try {
-      await updateDoc(userRef, {
-        blueTickStatus: "rejected",
-      });
-
+      await adminBatch([{
+        type: "update",
+        path: `users/${user.uid}`,
+        data: {
+          blueTickStatus: "rejected",
+        }
+      }]);
       toast.success(`${user.username} mavi tik talebi reddedildi.`);
     } catch (err: any) {
       console.error("Error rejecting blue tick status:", err);
       toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
     }
   };
-
   const handleVerification = async (
     verif: any,
     action: "approved" | "rejected",
   ) => {
     try {
-      const verifRef = doc(db, "verifications", verif.id);
-      await updateDoc(verifRef, { status: action });
-
-      const userRef = doc(db, "users", verif.uid);
-
+      const writes: any[] = [];
+      writes.push({ type: "update", path: `verifications/${verif.id}`, data: { status: action } });
       if (action === "approved") {
-        await updateDoc(userRef, {
-          isBanned: false,
-          bannedAt: null,
-          verificationStatus: "approved",
-        });
-        toast.success(`${verif.username} kullanıcısının askısı kaldırıldı.`);
+        writes.push({ type: "update", path: `users/${verif.uid}`, data: { isBanned: false, bannedAt: null, verificationStatus: "approved" } });
       } else {
-        await updateDoc(userRef, {
-          verificationStatus: "rejected",
-        });
-        toast.error(`${verif.username} doğrulaması reddedildi.`);
+        writes.push({ type: "update", path: `users/${verif.uid}`, data: { verificationStatus: "rejected" } });
       }
 
-
-      // Send System Message in Talko Destek Chat
-      try {
-        const SYSTEM_USER_ID = "system_talko_destek";
-        const chatId = [SYSTEM_USER_ID, verif.uid].sort().join("_");
-        const chatRef = doc(db, "chats", chatId);
-
-        const messageText =
-          action === "approved"
+      const SYSTEM_USER_ID = "system_talko_destek";
+      const chatId = [SYSTEM_USER_ID, verif.uid].sort().join("_");
+      const messageText = action === "approved"
             ? "🟢 Kimliğiniz doğrulandı.\nHesabınız tekrar kullanıma açılmıştır."
             : "🔴 Kimlik doğrulamanız onaylanmadı.\nLütfen tekrar doğrulama gönderiniz.";
 
-        await setDoc(
-          chatRef,
-          {
+      writes.push({
+        type: "set",
+        path: `chats/${chatId}`,
+        merge: true,
+        data: {
             id: chatId,
             participants: [SYSTEM_USER_ID, verif.uid],
             participantDetails: {
-              [SYSTEM_USER_ID]: {
-                username: "Talko Destek",
-                photoURL: TALKO_LOGO_DATA_URL,
-              },
-              [verif.uid]: { username: verif.username, photoURL: null }, // We don't have full user data here but it's ok
+              [SYSTEM_USER_ID]: { username: "Talko Destek", photoURL: TALKO_LOGO_DATA_URL },
+              [verif.uid]: { username: verif.username, photoURL: null },
             },
             lastMessage: messageText,
             lastMessageTimestamp: Date.now(),
             updatedAt: Date.now(),
-            [`unreadCount.${verif.uid}`]: increment(1),
-          },
-          { merge: true },
-        );
+            [`unreadCount.${verif.uid}`]: { __increment: 1 },
+        }
+      });
 
-        const messageId =
-          Date.now().toString() +
-          "_" +
-          Math.random().toString(36).substring(2, 9);
-        const messageRef = doc(db, `chats/${chatId}/messages`, messageId);
-        await setDoc(messageRef, {
+      const messageId = Date.now().toString() + "_" + Math.random().toString(36).substring(2, 9);
+      writes.push({
+        type: "set",
+        path: `chats/${chatId}/messages/${messageId}`,
+        data: {
           id: messageId,
           senderId: SYSTEM_USER_ID,
           text: messageText,
           timestamp: Date.now(),
-        });
-      } catch (err) {
-        console.error("System message gönderilemedi:", err);
-      }
+        }
+      });
+
+      await adminBatch(writes);
+      if (action === "approved") toast.success(`${verif.username} kullanıcısının askısı kaldırıldı.`);
+      else toast.error(`${verif.username} doğrulaması reddedildi.`);
     } catch (err: any) {
       console.error(err);
       toast.error("Doğrulama işlemi başarısız: " + err.message);
@@ -402,72 +401,78 @@ export default function AdminPanel() {
     const confirmSend = window.confirm(
       `Bu duyuruyu tüm ${targetUsers.length} kayıtlı kullanıcıya "Talko Destek" ismiyle göndermek istediğinizden emin misiniz?`,
     );
+  const handleSendBroadcast = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!announcementText.trim()) {
+      toast.error("Duyuru metni boş olamaz!");
+      return;
+    }
+    const SYSTEM_USER_ID = "system_talko_destek";
+    const targetUsers = users.filter(
+      (u) => u.uid && u.uid !== SYSTEM_USER_ID && !u.isBanned,
+    );
+    if (targetUsers.length === 0) {
+      toast.error("Duyuru gönderilecek aktif kullanıcı bulunamadı!");
+      return;
+    }
+    const confirmSend = window.confirm(
+      `Bu duyuruyu tüm ${targetUsers.length} kayıtlı kullanıcıya "Talko Destek" ismiyle göndermek istediğinizden emin misiniz?`,
+    );
     if (!confirmSend) return;
 
     setIsBroadcasting(true);
     setBroadcastProgress(0);
-
     let successCount = 0;
 
     try {
-      for (let i = 0; i < targetUsers.length; i++) {
-        const user = targetUsers[i];
-        if (!user || !user.uid) continue;
+      const BATCH_SIZE = 200;
+      for (let i = 0; i < targetUsers.length; i += BATCH_SIZE) {
+        const batchUsers = targetUsers.slice(i, i + BATCH_SIZE);
+        const writes: any[] = [];
         
-        try {
+        for (const user of batchUsers) {
           const chatId = [SYSTEM_USER_ID, user.uid].sort().join("_");
-          const chatRef = doc(db, "chats", chatId);
-
-          // Ensure the chat exists and is updated
-          await setDoc(
-            chatRef,
-            {
+          
+          writes.push({
+            type: "set",
+            path: `chats/${chatId}`,
+            merge: true,
+            data: {
               id: chatId,
               participants: [SYSTEM_USER_ID, user.uid],
               participantDetails: {
-                [SYSTEM_USER_ID]: {
-                  username: "Talko Destek",
-                  photoURL: TALKO_LOGO_DATA_URL,
-                },
-                [user.uid]: {
-                  username: user.username || "Kullanıcı",
-                  photoURL: user.photoURL || null,
-                },
+                [SYSTEM_USER_ID]: { username: "Talko Destek", photoURL: TALKO_LOGO_DATA_URL },
+                [user.uid]: { username: user.username || "Kullanıcı", photoURL: user.photoURL || null },
               },
               lastMessage: announcementText,
               lastMessageTimestamp: Date.now(),
               updatedAt: Date.now(),
-              [`unreadCount.${user.uid}`]: increment(1),
-            },
-            { merge: true },
-          );
-
-          // Add message
-          const messageId =
-            Date.now().toString() +
-            "_" +
-            Math.random().toString(36).substring(2, 9);
-          const messageRef = doc(db, `chats/${chatId}/messages`, messageId);
-          await setDoc(messageRef, {
-            id: messageId,
-            senderId: SYSTEM_USER_ID,
-            text: announcementText,
-            imageUrl: announcementImage.trim() || null,
-            timestamp: Date.now(),
+              [`unreadCount.${user.uid}`]: { __increment: 1 },
+            }
           });
 
-          successCount++;
-          setBroadcastProgress(
-            Math.round((successCount / targetUsers.length) * 100),
-          );
-
-          // Minor delay to keep Firestore writes paced and update UI smoothly
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        } catch (innerErr) {
-          console.error(`Error sending broadcast to ${user.uid}:`, innerErr);
+          const messageId = Date.now().toString() + "_" + Math.random().toString(36).substring(2, 9);
+          writes.push({
+            type: "set",
+            path: `chats/${chatId}/messages/${messageId}`,
+            data: {
+              id: messageId,
+              senderId: SYSTEM_USER_ID,
+              text: announcementText,
+              imageUrl: announcementImage.trim() || null,
+              timestamp: Date.now(),
+            }
+          });
+        }
+        
+        try {
+           await adminBatch(writes);
+           successCount += batchUsers.length;
+           setBroadcastProgress(Math.round((successCount / targetUsers.length) * 100));
+        } catch (e) {
+           console.error("Batch send error:", e);
         }
       }
-
       toast.success(`Duyuru başarıyla ${successCount} kullanıcıya gönderildi!`);
       setAnnouncementText("");
       setAnnouncementImage("");
@@ -1358,4 +1363,5 @@ export default function AdminPanel() {
       </main>
     </div>
   );
+}
 }

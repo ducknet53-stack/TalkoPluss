@@ -47,8 +47,75 @@ function getFirebaseAdmin() {
       console.warn("[FIREBASE ADMIN] Admin SDK initialization bypassed (No default credentials). Fallback local triggers are operational. Detail:", err.message);
     }
   }
-  return { db: dbAdmin, messaging: messagingAdmin };
+  return { db: dbAdmin, messaging: messagingAdmin, adminApp };
 }
+
+// Helper to check admin auth
+async function verifyAdminAuth(req: any, res: any) {
+  const token = req.headers.authorization?.split('Bearer ')[1];
+  if (!token) throw new Error("Unauthorized");
+  
+  const { db, adminApp } = getFirebaseAdmin();
+  if (!adminApp || !db) throw new Error("Firebase Admin not initialized");
+  
+  const decoded = await adminApp.auth().verifyIdToken(token);
+  const userDoc = await db.collection('users').doc(decoded.uid).get();
+  if (!userDoc.exists || !userDoc.data()?.isAdmin) {
+    throw new Error("Forbidden: Not an admin");
+  }
+  return { uid: decoded.uid, db };
+}
+
+// Admin update user
+app.post("/api/admin/update-user", async (req, res) => {
+  try {
+    const { db } = await verifyAdminAuth(req, res);
+    const { targetUid, data } = req.body;
+    if (!targetUid || !data) return res.status(400).json({ error: "Missing parameters" });
+    
+    await db.collection("users").doc(targetUid).update(data);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.message.includes("Forbidden") ? 403 : (err.message.includes("Unauthorized") ? 401 : 500)).json({ error: err.message });
+  }
+});
+
+// Generic Admin Write API
+app.post("/api/admin/batch", async (req, res) => {
+  try {
+    const { db } = await verifyAdminAuth(req, res);
+    const { writes } = req.body;
+    if (!writes || !Array.isArray(writes)) return res.status(400).json({ error: "Missing writes array" });
+    
+    const { FieldValue } = require('firebase-admin/firestore');
+    
+    // Helper to process special values
+    const processData = (data: any) => {
+      const processed = { ...data };
+      for (const key in processed) {
+        if (processed[key] === '__serverTimestamp') {
+          processed[key] = FieldValue.serverTimestamp();
+        } else if (typeof processed[key] === 'object' && processed[key] !== null && processed[key].__increment !== undefined) {
+          processed[key] = FieldValue.increment(processed[key].__increment);
+        }
+      }
+      return processed;
+    };
+    
+    const batch = db.batch();
+    for (const w of writes) {
+      const ref = db.doc(w.path);
+      const data = processData(w.data);
+      if (w.type === 'set') batch.set(ref, data, { merge: w.merge });
+      else if (w.type === 'update') batch.update(ref, data);
+      else if (w.type === 'delete') batch.delete(ref);
+    }
+    await batch.commit();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.message.includes("Forbidden") ? 403 : (err.message.includes("Unauthorized") ? 401 : 500)).json({ error: err.message });
+  }
+});
 
 // Push notification send endpoint
 app.post("/api/notifications/send", async (req, res) => {
@@ -351,7 +418,9 @@ app.post("/api/ai/chat", async (req, res) => {
         const responseStream = await geminiClient.models.generateContentStream({
           model: "gemini-2.0-flash",
           contents: geminiHistory,
-          systemInstruction: { parts: [{ text: systemPrompt }] }
+          config: {
+            systemInstruction: systemPrompt
+          }
         });
 
         for await (const chunk of responseStream) {
