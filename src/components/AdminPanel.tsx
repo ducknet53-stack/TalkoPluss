@@ -577,7 +577,7 @@ export default function AdminPanel() {
 
           <button
             onClick={() => {
-              window.location.hash = "";
+              window.location.href = "/";
             }}
             className="w-full mt-4 py-2.5 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700/30 rounded-xl font-medium transition-all flex items-center justify-center gap-2 text-sm"
           >
