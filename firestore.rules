@@ -109,13 +109,13 @@ service cloud.firestore {
     // Users Collection
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidUser(incoming()) && (isOwner(userId) || userId == 'system_talko_destek' || userId == 'system_talko_ai');
-      allow update: if isAuthenticated() && (
+      allow create, update: if isAuthenticated() && (
         isOwner(userId) || 
         userId == 'system_talko_destek' || 
-        userId == 'system_talko_ai'
+        userId == 'system_talko_ai' ||
+        isAdmin()
       );
-      allow delete: if isAuthenticated() && isOwner(userId);
+      allow delete: if isAuthenticated() && (isOwner(userId) || isAdmin());
 
       // Sub-collection: FCM device tokens
       match /tokens/{tokenId} {

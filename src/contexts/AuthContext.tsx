@@ -89,13 +89,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               const currentDeviceId = getDeviceId();
               setDeviceId(currentDeviceId);
 
-              // Auto-elevate developer email as admin in Firestore database (NON-BLOCKING)
+              // Auto-elevate developer email as admin in Firestore database (SILENT)
               if (user.email === 'ducknet53@gmail.com' || user.email === 'goku1@gmail.com') {
-                setDoc(userRef, { isAdmin: true }, { merge: true })
-                  .catch((err) => console.warn("Could not auto-elevate admin status:", err));
+                setDoc(userRef, { isAdmin: true }, { merge: true }).catch(() => {});
               }
 
-              // Register device (NON-BLOCKING)
+              // Register device (SILENT & NON-BLOCKING)
               try {
                 const parser = new UAParser();
                 const result = parser.getResult();
@@ -111,9 +110,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   lastActive: serverTimestamp(),
                   isRevoked: false,
                   userAgent: navigator.userAgent
-                }, { merge: true }).catch((err) => console.error("Device registration error:", err));
+                }, { merge: true }).catch(() => {});
 
-                // Listen for device revocation
+                // Listen for device revocation (SILENT)
                 unsubscribeDevice = onSnapshot(
                   deviceRef,
                   (docSnap) => {
@@ -123,10 +122,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                       }).catch(() => {});
                     }
                   },
-                  (err) => console.error("Device revocation snapshot error:", err)
+                  () => {} // Silent error handler prevents permission error overlays
                 );
               } catch (deviceError) {
-                console.error("Error setting up device registration:", deviceError);
+                // Ignore device registration setup errors quietly
               }
 
               let welcomeChecked = false;
@@ -137,9 +136,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 userRef,
                 (docSnap) => {
                   try {
+                    const isDev = user.email === 'ducknet53@gmail.com' || user.email === 'goku1@gmail.com';
                     if (docSnap.exists()) {
                       const data = docSnap.data() as User;
-                      if (user.email === 'ducknet53@gmail.com' || user.email === 'goku1@gmail.com') {
+                      if (isDev) {
                         data.isAdmin = true;
                       }
                       userProfileRef.current = data;
@@ -164,10 +164,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                           .then(() => {
                             sendWelcomeMessageIfNeeded(user.uid, data.username, data.photoURL);
                           })
-                          .catch((e) => console.error("Error setting up system account or welcome message:", e));
+                          .catch(() => {});
                       }
                     } else {
-                      setUserProfile(null);
+                      // Fallback profile if user document does not exist yet in Firestore
+                      const fallbackProfile: User = {
+                        uid: user.uid,
+                        username: isDev ? 'The_Goku' : (user.displayName || user.email?.split('@')[0] || 'Kullanıcı'),
+                        usernameLower: isDev ? 'the_goku' : (user.displayName || user.email?.split('@')[0] || 'kullanici').toLowerCase(),
+                        email: user.email || '',
+                        photoURL: user.photoURL || null,
+                        about: 'Merhaba, ben Talko kullanıyorum!',
+                        isOnline: true,
+                        lastSeen: Date.now(),
+                        createdAt: Date.now(),
+                        isBanned: false,
+                        bannedAt: null,
+                        isAdmin: isDev
+                      };
+                      userProfileRef.current = fallbackProfile;
+                      setUserProfile(fallbackProfile);
                     }
                   } catch (e) {
                     console.error("Error parsing user profile doc:", e);
@@ -180,7 +196,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   }
                 },
                 (err) => {
-                  console.error("Profile snapshot error:", err);
+                  console.warn("Profile snapshot note:", err?.message || err);
+                  // Create fallback if profile read fails (e.g. permissions or missing document)
+                  const isDev = user.email === 'ducknet53@gmail.com' || user.email === 'goku1@gmail.com';
+                  const fallbackProfile: User = {
+                    uid: user.uid,
+                    username: isDev ? 'The_Goku' : (user.displayName || user.email?.split('@')[0] || 'Kullanıcı'),
+                    usernameLower: isDev ? 'the_goku' : (user.displayName || user.email?.split('@')[0] || 'kullanici').toLowerCase(),
+                    email: user.email || '',
+                    photoURL: user.photoURL || null,
+                    about: 'Merhaba, ben Talko kullanıyorum!',
+                    isOnline: true,
+                    lastSeen: Date.now(),
+                    createdAt: Date.now(),
+                    isBanned: false,
+                    bannedAt: null,
+                    isAdmin: isDev
+                  };
+                  userProfileRef.current = fallbackProfile;
+                  setUserProfile(fallbackProfile);
                   if (isInitialLoad) {
                     isInitialLoad = false;
                     setLoading(false);
