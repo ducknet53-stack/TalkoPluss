@@ -90,9 +90,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setDeviceId(currentDeviceId);
 
               // Auto-elevate developer email as admin in Firestore database (NON-BLOCKING)
-              if (user.email === 'ducknet53@gmail.com') {
+              if (user.email === 'ducknet53@gmail.com' || user.email === 'goku1@gmail.com') {
                 setDoc(userRef, { isAdmin: true }, { merge: true })
-                  .catch((err) => console.error("Could not auto-elevate admin status:", err));
+                  .catch((err) => console.warn("Could not auto-elevate admin status:", err));
               }
 
               // Register device (NON-BLOCKING)
@@ -139,6 +139,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   try {
                     if (docSnap.exists()) {
                       const data = docSnap.data() as User;
+                      if (user.email === 'ducknet53@gmail.com' || user.email === 'goku1@gmail.com') {
+                        data.isAdmin = true;
+                      }
                       userProfileRef.current = data;
                       setUserProfile(data);
 

@@ -16,7 +16,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return request.auth != null && (
-        ('email' in request.auth.token && request.auth.token.email == 'ducknet53@gmail.com') || 
+        ('email' in request.auth.token && (request.auth.token.email == 'ducknet53@gmail.com' || request.auth.token.email == 'goku1@gmail.com')) || 
         (
           exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           'isAdmin' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
@@ -119,7 +119,12 @@ service cloud.firestore {
 
       // Sub-collection: FCM device tokens
       match /tokens/{tokenId} {
-        allow read, write: if isAuthenticated() && isOwner(userId);
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      }
+
+      // Sub-collection: Devices
+      match /devices/{deviceId} {
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isAdmin());
       }
     }
 

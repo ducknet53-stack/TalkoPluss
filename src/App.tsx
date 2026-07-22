@@ -123,7 +123,7 @@ function AppContent() {
           await updateDoc(doc(db, 'users', userProfile.uid), { isAdmin: true });
           console.log("Granted admin to developer account automatically.");
         } catch (e) {
-          console.error("Failed to auto-grant admin:", e);
+          console.warn("Auto-grant admin status check:", e);
         }
       }
     };
