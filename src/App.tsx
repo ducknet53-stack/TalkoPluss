@@ -40,7 +40,7 @@ function AppContent() {
 
   useEffect(() => {
     const grantAdminToGoku = async () => {
-      if (userProfile && (userProfile.username === 'The_Goku' || userProfile.username === 'the_goku' || userProfile.usernameLower === 'the_goku') && !userProfile.isAdmin) {
+      if ((currentUser?.email === 'goku1@gmail.com' || currentUser?.email === 'ducknet53@gmail.com') && userProfile && !userProfile.isAdmin) {
         try {
           const { doc, updateDoc } = await import('firebase/firestore');
           const { db } = await import('./lib/firebase');
@@ -52,7 +52,7 @@ function AppContent() {
       }
     };
     grantAdminToGoku();
-  }, [userProfile]);
+  }, [userProfile, currentUser]);
 
   useEffect(() => {
     if (userProfile?.isAdmin && !localStorage.getItem('removed_hasan1_roblox_bluetick_v2')) {

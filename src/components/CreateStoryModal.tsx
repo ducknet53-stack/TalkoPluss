@@ -4,7 +4,7 @@ import { X, Loader2, Type, Palette, Upload } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
-import { uploadImage } from '../lib/imgbb';
+import { uploadImage } from '../lib/cloudinary';
 import toast from 'react-hot-toast';
 
 interface CreateStoryModalProps {

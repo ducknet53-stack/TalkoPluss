@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { SYSTEM_USER_ID, TALKO_AI_USER_ID } from '../lib/systemAccount';
 import { TALKO_LOGO_DATA_URL, TALKO_AI_LOGO_DATA_URL } from '../lib/assets';
 import { cn, playSendSound } from '../lib/utils';
-import { uploadImage } from '../lib/imgbb';
+import { uploadImage } from '../lib/cloudinary';
 import toast from 'react-hot-toast';
 import { VerifiedBadge } from './VerifiedBadge';
 import { hasProfanity } from '../lib/moderation';

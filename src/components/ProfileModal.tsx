@@ -5,7 +5,7 @@ import { X, Camera, Loader2, BadgeCheck, Bell, CheckCircle2, XCircle, Smartphone
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { uploadImage } from '../lib/imgbb';
+import { uploadImage } from '../lib/cloudinary';
 import { TALKO_VERIFIED_SVG } from '../lib/assets';
 import { requestNotificationPermission } from '../lib/notifications';
 import { formatDistanceToNow } from 'date-fns';
