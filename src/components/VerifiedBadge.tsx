@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { TALKO_VERIFIED_SVG } from '../lib/assets';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -30,6 +31,7 @@ export function VerifiedBadge({ className = "w-4 h-4" }: VerifiedBadgeProps) {
         dangerouslySetInnerHTML={{ __html: TALKO_VERIFIED_SVG }}
       />
       
+      {typeof document !== 'undefined' && createPortal(
       <AnimatePresence>
         {showModal && (
           <motion.div 
@@ -86,7 +88,9 @@ export function VerifiedBadge({ className = "w-4 h-4" }: VerifiedBadgeProps) {
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body
+    )}
     </>
   );
 }

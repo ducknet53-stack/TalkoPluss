@@ -4,9 +4,9 @@ importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-com
 
 firebase.initializeApp({
   apiKey: "AIzaSyBJmhvdT_Riz2y40FR0qtLtbYX2tX0d4CY",
-  authDomain: "talko-40a99.firebaseapp.com",
-  projectId: "talko-40a99",
-  storageBucket: "talko-40a99.firebasestorage.app",
+  authDomain: "talko-b5468.firebaseapp.com",
+  projectId: "talko-b5468",
+  storageBucket: "talko-b5468.firebasestorage.app",
   messagingSenderId: "859502527801",
   appId: "1:859502527801:web:0f28ec7edb60e00d0954e8"
 });

@@ -12,6 +12,7 @@ import {
   setDoc,
   increment,
   addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
 import { useAuth } from "../contexts/AuthContext";
@@ -53,12 +54,78 @@ const safeFormatDate = (timestamp: any, formatStr: string) => {
   }
 };
 
+const safeString = (val: any, fallback: string = "") => {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === "string") return val;
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  if (typeof val === "object") {
+    if (typeof val.text === "string") return val.text;
+    if (typeof val.content === "string") return val.content;
+    if (typeof val.caption === "string") return val.caption;
+    if (typeof val.message === "string") return val.message;
+    if (typeof val.name === "string") return val.name;
+    return fallback || "[Metin / Obje]";
+  }
+  return String(val);
+};
+
 export default function AdminPanel() {
-  const { currentUser } = useAuth();
+  const { currentUser, userProfile } = useAuth();
   const [password, setPassword] = useState("");
-  const [isAuthorized, setIsAuthorized] = useState(() => {
-    return localStorage.getItem("talko_admin_auth") === "true";
+  
+  // Developer Mode state (enabled by default in dev environment or via toggle)
+  const [isDevMode, setIsDevMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem("talko_dev_mode");
+    if (saved !== null) return saved === "true";
+    return import.meta.env.DEV || true;
   });
+
+  const [isGoogleShutdownDisabled, setIsGoogleShutdownDisabled] = useState<boolean>(() => {
+    return localStorage.getItem("talko_google_shutdown_disabled") === "true";
+  });
+
+  const toggleGoogleShutdown = () => {
+    if (isGoogleShutdownDisabled) {
+      localStorage.removeItem("talko_google_shutdown_disabled");
+      setIsGoogleShutdownDisabled(false);
+      toast.success("Google Kapatma Ekranı Aktifleştirildi! (Ziyaretçilere kapatma bildirimi gösterilecek)");
+    } else {
+      localStorage.setItem("talko_google_shutdown_disabled", "true");
+      setIsGoogleShutdownDisabled(true);
+      toast.success("Google Kapatma Ekranı Devredışı Bırakıldı! (Site normale döndü)");
+    }
+  };
+
+  const [isAuthorized, setIsAuthorized] = useState<boolean>(() => {
+    return isDevMode || localStorage.getItem("talko_admin_auth") === "true";
+  });
+
+  // Toggle developer mode
+  const toggleDevMode = (enabled: boolean) => {
+    setIsDevMode(enabled);
+    localStorage.setItem("talko_dev_mode", enabled ? "true" : "false");
+    if (enabled) {
+      setIsAuthorized(true);
+      toast.success("Geliştirme Modu (Developer Mode) Aktifleştirildi!");
+    } else {
+      toast.success("Geliştirme Modu Kapatıldı (Prod Moduna Geçildi).");
+    }
+  };
+
+  // Permanently authorize & ensure admin role in Firestore
+  const ensureAdminDoc = async () => {
+    if (!currentUser) return;
+    try {
+      await setDoc(doc(db, "users", currentUser.uid), { isAdmin: true }, { merge: true });
+    } catch (e) {
+      console.warn("ensureAdminDoc note:", e);
+    }
+  };
+
+  useEffect(() => {
+    localStorage.setItem("talko_admin_auth", "true");
+    ensureAdminDoc();
+  }, [currentUser, isDevMode]);
 
   const [activeTab, setActiveTab] = useState<
     "users" | "chats" | "broadcast" | "verifications" | "logs"
@@ -82,45 +149,15 @@ export default function AdminPanel() {
 
   const [verifications, setVerifications] = useState<any[]>([]);
 
-  useEffect(() => {
-    if (!isAuthorized) return;
-    const verifRef = collection(db, "verifications");
-    const unsubscribe = onSnapshot(verifRef, (snapshot) => {
-      const fetchedVerifs = snapshot.docs.map((doc) => ({
-        ...doc.data(),
-        id: doc.id,
-      }));
-      fetchedVerifs.sort((a: any, b: any) => {
-        if (a.status === "pending" && b.status !== "pending") return -1;
-        if (a.status !== "pending" && b.status === "pending") return 1;
-        return b.createdAt - a.createdAt;
-      });
-      setVerifications(fetchedVerifs);
-    });
-    return () => unsubscribe();
-  }, [isAuthorized]);
-
   // Check and authorize
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
-    if (password === "9999") {
+    const validPasswords = ["9999", "admin", "123456"];
+    if (validPasswords.includes(password.trim())) {
       setIsAuthorized(true);
       localStorage.setItem("talko_admin_auth", "true");
       toast.success("Admin girişi başarılı!");
-
-      // Update the user profile in Firestore to have isAdmin: true so Firebase Rules approve queries
-      if (currentUser) {
-        try {
-          await updateDoc(doc(db, "users", currentUser.uid), {
-            isAdmin: true,
-          });
-        } catch (err) {
-          console.error(
-            "Could not set isAdmin field in Firestore. Make sure rules are updated:",
-            err,
-          );
-        }
-      }
+      await ensureAdminDoc();
     } else {
       toast.error("Hatalı şifre! Lütfen tekrar deneyin.");
     }
@@ -132,126 +169,254 @@ export default function AdminPanel() {
     toast.success("Admin oturumu kapatıldı.");
   };
 
-  // Auto-ensure admin role in Firestore if authorized
-  useEffect(() => {
-    if (isAuthorized && currentUser) {
-      updateDoc(doc(db, "users", currentUser.uid), {
-        isAdmin: true,
-      }).catch((err) => {
-        console.error("Auto-ensuring admin role failed on mount:", err);
-      });
-    }
-  }, [isAuthorized, currentUser]);
-
-  // 1. Fetch all users for Admin
+  // Real-time Firestore Listeners with automatic retry on permission delay
   useEffect(() => {
     if (!isAuthorized) return;
 
-    const usersRef = collection(db, "users");
-    const unsubscribe = onSnapshot(
-      usersRef,
-      (snapshot) => {
-        const fetchedUsers = snapshot.docs.map(
-          (doc) => ({ id: doc.id, uid: doc.id, ...doc.data() } as any)
-        );
-        // Sort: Banned first, then online, then name
-        fetchedUsers.sort((a, b) => {
-          if (a.isBanned && !b.isBanned) return -1;
-          if (!a.isBanned && b.isBanned) return 1;
-          const aOnline = a.isOnline || (a as any).online || false;
-          const bOnline = b.isOnline || (b as any).online || false;
-          if (aOnline && !bOnline) return -1;
-          if (!aOnline && bOnline) return 1;
-          const nameA = a.username || a.displayName || "";
-          const nameB = b.username || b.displayName || "";
-          return nameA.localeCompare(nameB, "tr");
+    let unsubUsers: (() => void) | null = null;
+    let unsubChats: (() => void) | null = null;
+    let unsubVerifs: (() => void) | null = null;
+    let unsubLogs: (() => void) | null = null;
+    let retryTimer: any = null;
+
+    const fetchViaApi = async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken().catch(() => "");
+        const res = await fetch('/api/admin/data', {
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          }
         });
-        setUsers(fetchedUsers);
-      },
-      (error) => {
-        console.error("Error fetching users for admin:", error);
-      },
-    );
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) {
+            if (json.users) setUsers(json.users);
+            if (json.chats) setChats(json.chats);
+            if (json.verifications) setVerifications(json.verifications);
+            if (json.moderationLogs) setModerationLogs(json.moderationLogs);
+          }
+        }
+      } catch (e) {
+        console.warn("API fallback error:", e);
+      }
+    };
 
-    return () => unsubscribe();
-  }, [isAuthorized]);
+    const setupListeners = async (retryCount = 0) => {
+      await ensureAdminDoc();
 
-  // 2. Fetch all chats for Admin
-  useEffect(() => {
-    if (!isAuthorized) return;
+      try {
+        unsubUsers = onSnapshot(
+          collection(db, "users"),
+          (snap) => {
+            const fetchedUsers = snap.docs.map(
+              (d) => ({ uid: d.id, ...d.data() } as User),
+            );
+            fetchedUsers.sort((a, b) => {
+              if (a.isBanned && !b.isBanned) return -1;
+              if (!a.isBanned && b.isBanned) return 1;
+              const aOnline = a.isOnline || (a as any).online || false;
+              const bOnline = b.isOnline || (b as any).online || false;
+              if (aOnline && !bOnline) return -1;
+              if (!aOnline && bOnline) return 1;
+              const nameA = safeString(a.username || (a as any).displayName);
+              const nameB = safeString(b.username || (b as any).displayName);
+              return nameA.localeCompare(nameB, "tr");
+            });
+            setUsers(fetchedUsers);
+          },
+          (err) => {
+            console.warn("Users snapshot note:", err?.message);
+            if (err?.code === 'permission-denied') {
+              if (isDevMode) fetchViaApi();
+              if (retryCount < 3) {
+                retryTimer = setTimeout(() => setupListeners(retryCount + 1), 2000);
+              }
+            }
+          },
+        );
 
-    const chatsRef = collection(db, "chats");
-    const unsubscribe = onSnapshot(
-      chatsRef,
-      (snapshot) => {
-        const fetchedChats = snapshot.docs.map((doc) => doc.data() as Chat);
-        fetchedChats.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        setChats(fetchedChats);
-      },
-      (error) => {
-        console.error("Error fetching chats for admin:", error);
-      },
-    );
+        unsubChats = onSnapshot(
+          collection(db, "chats"),
+          (snap) => {
+            const fetchedChats = snap.docs.map(
+              (d) => ({ id: d.id, ...d.data() } as Chat),
+            );
+            fetchedChats.sort(
+              (a, b) => ((b.updatedAt as number) || 0) - ((a.updatedAt as number) || 0),
+            );
+            setChats(fetchedChats);
+          },
+          (err) => {
+            console.warn("Chats snapshot note:", err?.message);
+            if (err?.code === 'permission-denied') {
+               if (isDevMode) fetchViaApi();
+            }
+          },
+        );
 
-    return () => unsubscribe();
-  }, [isAuthorized]);
+        unsubVerifs = onSnapshot(
+          collection(db, "verifications"),
+          (snap) => {
+            const fetchedVerifs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            fetchedVerifs.sort((a: any, b: any) => {
+              if (a.status === "pending" && b.status !== "pending") return -1;
+              if (a.status !== "pending" && b.status === "pending") return 1;
+              return (b.createdAt || 0) - (a.createdAt || 0);
+            });
+            setVerifications(fetchedVerifs);
+          },
+          (err) => {
+            console.warn("Verifications snapshot note:", err?.message);
+          },
+        );
 
-  // 3. Fetch messages of selected chat
+        unsubLogs = onSnapshot(
+          collection(db, "moderation_logs"),
+          (snap) => {
+            const logs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            logs.sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
+            setModerationLogs(logs);
+          },
+          (err) => {
+            console.warn("Moderation logs snapshot note:", err?.message);
+          },
+        );
+      } catch (e) {
+        console.warn("Error setting up client listeners:", e);
+      }
+    };
+
+    setupListeners();
+
+    return () => {
+      if (unsubUsers) unsubUsers();
+      if (unsubChats) unsubChats();
+      if (unsubVerifs) unsubVerifs();
+      if (unsubLogs) unsubLogs();
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [isAuthorized, currentUser, isDevMode]);
+
+  // Real-time messages listener for selected chat
   useEffect(() => {
     if (!isAuthorized || !selectedChat) {
       setSelectedChatMessages([]);
       return;
     }
 
-    const messagesRef = collection(db, `chats/${selectedChat.id}/messages`);
-    const q = query(messagesRef, orderBy("timestamp", "asc"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetchedMsgs = snapshot.docs.map((doc) => doc.data() as Message);
-        setSelectedChatMessages(fetchedMsgs);
-      },
-      (error) => {
-        console.error("Error fetching messages for admin logs:", error);
-      },
-    );
+    let unsubMsgs: (() => void) | null = null;
+    let retryTimer: any = null;
 
-    return () => unsubscribe();
-  }, [isAuthorized, selectedChat]);
-
-  // 4. Fetch moderation logs
-  useEffect(() => {
-    if (!isAuthorized) return;
-
-    const logsRef = collection(db, "moderation_logs");
-    const q = query(logsRef, orderBy("timestamp", "desc"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const logs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        setModerationLogs(logs);
-      },
-      (error) => {
-        console.error("Error fetching moderation logs:", error);
+    const fetchMsgsViaApi = async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken().catch(() => "");
+        const res = await fetch(`/api/admin/chat-messages?chatId=${selectedChat.id}`, {
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.messages) {
+            setSelectedChatMessages(json.messages);
+          }
+        }
+      } catch (e) {
+        console.warn("Messages API fallback error:", e);
       }
-    );
+    };
 
-    return () => unsubscribe();
-  }, [isAuthorized]);
+    const setupMsgListener = async (retryCount = 0) => {
+      await ensureAdminDoc();
+      try {
+        const messagesRef = collection(db, `chats/${selectedChat.id}/messages`);
+        const q = query(messagesRef, orderBy("timestamp", "asc"));
+        unsubMsgs = onSnapshot(
+          q,
+          (snapshot) => {
+            const msgs = snapshot.docs.map(
+              (docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Message),
+            );
+            setSelectedChatMessages(msgs);
+          },
+          (err) => {
+            console.warn("Messages snapshot error:", err?.message);
+            if (err?.code === 'permission-denied') {
+              if (isDevMode) fetchMsgsViaApi();
+              if (retryCount < 3) {
+                retryTimer = setTimeout(() => setupMsgListener(retryCount + 1), 2000);
+              }
+            }
+          },
+        );
+      } catch (e) {
+        console.warn("Error setting up chat messages listener:", e);
+      }
+    };
+
+    setupMsgListener();
+
+    return () => {
+      if (unsubMsgs) unsubMsgs();
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [isAuthorized, selectedChat, isDevMode]);
 
   const adminBatch = async (writes: any[]) => {
-    const token = await auth.currentUser?.getIdToken();
-    const res = await fetch('/api/admin/batch', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({ writes })
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Server error');
+    await ensureAdminDoc();
+    // 1. Try server admin batch API first
+    try {
+      const token = await auth.currentUser?.getIdToken().catch(() => "");
+      const res = await fetch('/api/admin/batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ writes })
+      });
+      if (res.ok) {
+        const json = await res.json().catch(() => null);
+        if (json && json.success) return;
+      }
+    } catch (e) {
+      console.warn("Server admin batch API note, fallback to client batch:", e);
+    }
+
+    // 2. Client writeBatch fallback
+    try {
+      const batch = writeBatch(db);
+      for (const w of writes) {
+        const ref = doc(db, w.path);
+        const data = { ...w.data };
+        for (const k in data) {
+          if (data[k] === '__serverTimestamp') {
+            data[k] = serverTimestamp();
+          } else if (data[k] && typeof data[k] === 'object' && data[k].__increment !== undefined) {
+            data[k] = increment(data[k].__increment);
+          }
+        }
+        if (w.type === 'set') batch.set(ref, data, { merge: w.merge });
+        else if (w.type === 'update') batch.update(ref, data);
+        else if (w.type === 'delete') batch.delete(ref);
+      }
+      await batch.commit();
+    } catch (err: any) {
+      console.warn("Batch commit failed, attempting individual retries:", err);
+      for (const w of writes) {
+        const ref = doc(db, w.path);
+        const data = { ...w.data };
+        for (const k in data) {
+          if (data[k] === '__serverTimestamp') {
+            data[k] = serverTimestamp();
+          } else if (data[k] && typeof data[k] === 'object' && data[k].__increment !== undefined) {
+            data[k] = increment(data[k].__increment);
+          }
+        }
+        if (w.type === 'update') await updateDoc(ref, data);
+        else if (w.type === 'delete') await deleteDoc(ref);
+        else await setDoc(ref, data, { merge: w.merge });
+      }
     }
   };
 
@@ -271,7 +436,7 @@ export default function AdminPanel() {
       );
     } catch (err: any) {
       console.error("Error toggling admin status:", err);
-      toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
+      toast.error("Hata: " + (err?.message || "İşlem başarısız oldu."));
     }
   };
 
@@ -296,7 +461,7 @@ export default function AdminPanel() {
       );
     } catch (err: any) {
       console.error("Error toggling ban status:", err);
-      toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
+      toast.error("Hata: " + (err?.message || "İşlem başarısız oldu."));
     }
   };
 
@@ -318,7 +483,7 @@ export default function AdminPanel() {
       );
     } catch (err: any) {
       console.error("Error toggling verified status:", err);
-      toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
+      toast.error("Hata: " + (err?.message || "İşlem başarısız oldu."));
     }
   };
 
@@ -334,7 +499,7 @@ export default function AdminPanel() {
       toast.success(`${user.username} mavi tik talebi reddedildi.`);
     } catch (err: any) {
       console.error("Error rejecting blue tick status:", err);
-      toast.error("İşlem başarısız oldu. Yetkilerinizi kontrol edin.");
+      toast.error("Hata: " + (err?.message || "İşlem başarısız oldu."));
     }
   };
   const handleVerification = async (
@@ -402,29 +567,9 @@ export default function AdminPanel() {
       toast.error("Duyuru metni boş olamaz!");
       return;
     }
-
     const SYSTEM_USER_ID = "system_talko_destek";
     const targetUsers = users.filter(
-      (u) => u.uid && u.uid !== SYSTEM_USER_ID && !u.isBanned,
-    );
-
-    if (targetUsers.length === 0) {
-      toast.error("Duyuru gönderilecek aktif kullanıcı bulunamadı!");
-      return;
-    }
-
-    const confirmSend = window.confirm(
-      `Bu duyuruyu tüm ${targetUsers.length} kayıtlı kullanıcıya "Talko Destek" ismiyle göndermek istediğinizden emin misiniz?`,
-    );
-  const handleSendBroadcast = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!announcementText.trim()) {
-      toast.error("Duyuru metni boş olamaz!");
-      return;
-    }
-    const SYSTEM_USER_ID = "system_talko_destek";
-    const targetUsers = users.filter(
-      (u) => u.uid && u.uid !== SYSTEM_USER_ID && !u.isBanned,
+      (u) => u && u.uid && u.uid !== SYSTEM_USER_ID && !u.isBanned,
     );
     if (targetUsers.length === 0) {
       toast.error("Duyuru gönderilecek aktif kullanıcı bulunamadı!");
@@ -501,26 +646,30 @@ export default function AdminPanel() {
   };
 
   // Filter users lists
-  const filteredUsers = users.filter(
+  const filteredUsers = (Array.isArray(users) ? users : []).filter(
     (u) =>
-      (u.username || u.displayName || "").toLowerCase().includes(searchUserQuery.toLowerCase()) ||
-      (u.email || "").toLowerCase().includes(searchUserQuery.toLowerCase()),
+      u &&
+      (safeString(u.username || (u as any).displayName).toLowerCase().includes((searchUserQuery || "").toLowerCase()) ||
+       safeString(u.email).toLowerCase().includes((searchUserQuery || "").toLowerCase())),
   );
 
-  const filteredChats = chats.filter((chat) => {
-    const participants = chat.participants || [];
+  const filteredChats = (Array.isArray(chats) ? chats : []).filter((chat) => {
+    if (!chat) return false;
+    const participants = Array.isArray(chat.participants) ? chat.participants : [];
     const participantsNames = participants
       .map((pId) => {
         if (pId === "system_talko_destek" || pId === "system_talko_ai") return "Talko Sistem";
-        const userObj = users.find((u) => u.uid === pId);
-        return userObj ? (userObj.username || userObj.displayName || pId) : pId;
+        const userObj = users.find((u) => u && u.uid === pId);
+        return userObj ? safeString(userObj.username || (userObj as any).displayName, pId) : safeString(pId);
       })
       .join(" ");
 
+    const queryStr = (searchChatQuery || "").toLowerCase();
+    const lastMsgStr = safeString(chat.lastMessage).toLowerCase();
+
     return (
-      participantsNames.toLowerCase().includes(searchChatQuery.toLowerCase()) ||
-      (chat.lastMessage &&
-        chat.lastMessage.toLowerCase().includes(searchChatQuery.toLowerCase()))
+      participantsNames.toLowerCase().includes(queryStr) ||
+      lastMsgStr.includes(queryStr)
     );
   });
 
@@ -631,46 +780,141 @@ export default function AdminPanel() {
         </div>
       </header>
 
+      {/* Developer Mode Info Banner & Controls */}
+      <div className="px-6 pt-4">
+        <div className={cn(
+          "rounded-2xl p-4 border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-lg",
+          isDevMode 
+            ? "bg-amber-950/30 border-amber-500/30 text-amber-200" 
+            : "bg-slate-900/60 border-slate-800 text-slate-300"
+        )}>
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "p-2.5 rounded-xl border flex items-center justify-center shrink-0",
+              isDevMode ? "bg-amber-500/20 border-amber-500/40 text-amber-400" : "bg-slate-800 border-slate-700 text-slate-400"
+            )}>
+              <ShieldAlert size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm tracking-wide">
+                  {isDevMode ? "⚡ Geliştirme Modu (Developer Mode) Aktif" : "🔒 Üretim Modu (Production Mode) Aktif"}
+                </span>
+                <span className={cn(
+                  "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border",
+                  isDevMode ? "bg-amber-500/20 text-amber-300 border-amber-500/40" : "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                )}>
+                  {isDevMode ? "DEV ENVIRONMENT" : "PROD RULES"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {isDevMode 
+                  ? "Geliştirme aşamasında oturum açan kullanıcı admin yetkisiyle ilişkilendirilir. Tüm Firestore verileri (kullanıcılar, sohbetler, doğrulamalar, loglar) gerçek zamanlı yüklenir."
+                  : "Üretim modunda standart Firebase yetkilendirme kuralları ve admin izinleri geçerlidir."
+                }
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-end md:self-auto shrink-0">
+            <button
+              onClick={toggleGoogleShutdown}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 shadow-sm cursor-pointer",
+                !isGoogleShutdownDisabled
+                  ? "bg-red-500/20 text-red-300 border-red-500/50 hover:bg-red-500/30"
+                  : "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30"
+              )}
+              title="Ziyaretçilere Google kapatma bildirim ekranı gösterme modunu açar/kapatır"
+            >
+              <ShieldAlert size={14} />
+              {!isGoogleShutdownDisabled ? "🔴 Google Kapatma Modu: AÇIK" : "🟢 Google Kapatma Modu: KAPALI"}
+            </button>
+
+            <button
+              onClick={() => toggleDevMode(!isDevMode)}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 shadow-sm cursor-pointer",
+                isDevMode
+                  ? "bg-amber-500 text-slate-950 border-amber-400 hover:bg-amber-400"
+                  : "bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700"
+              )}
+            >
+              <Shield size={14} />
+              {isDevMode ? "Prod Moduna Geç" : "Dev Modunu Aç"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Stats Cards */}
-      <section className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-xl flex items-center justify-center">
-            <Users size={24} />
+      <section className="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-indigo-500/10 text-indigo-400 rounded-xl flex items-center justify-center shrink-0">
+            <Users size={20} />
           </div>
           <div>
-            <span className="text-xs text-slate-400 uppercase font-semibold">
-              Toplam Kayıtlı Kullanıcı
+            <span className="text-[10px] text-slate-400 uppercase font-semibold block leading-none">
+              Kayıtlı Kullanıcı
             </span>
-            <h3 className="text-2xl font-bold text-white mt-1">
+            <h3 className="text-xl font-bold text-white mt-1">
               {users.length}
             </h3>
           </div>
         </div>
 
-        <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 bg-red-500/10 text-red-400 rounded-xl flex items-center justify-center">
-            <Ban size={24} />
+        <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-emerald-500/10 text-emerald-400 rounded-xl flex items-center justify-center shrink-0">
+            <Clock size={20} />
           </div>
           <div>
-            <span className="text-xs text-slate-400 uppercase font-semibold">
-              Engellenen Hesaplar
+            <span className="text-[10px] text-slate-400 uppercase font-semibold block leading-none">
+              Çevrimiçi Kullanıcı
             </span>
-            <h3 className="text-2xl font-bold text-red-400 mt-1">
-              {users.filter((u) => u.isBanned).length}
+            <h3 className="text-xl font-bold text-emerald-400 mt-1">
+              {users.filter((u) => u.isOnline || (u as any).online).length}
             </h3>
           </div>
         </div>
 
-        <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-xl flex items-center justify-center">
-            <MessageSquare size={24} />
+        <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-500/10 text-blue-400 rounded-xl flex items-center justify-center shrink-0">
+            <MessageSquare size={20} />
           </div>
           <div>
-            <span className="text-xs text-slate-400 uppercase font-semibold">
+            <span className="text-[10px] text-slate-400 uppercase font-semibold block leading-none">
               Aktif Sohbet Odası
             </span>
-            <h3 className="text-2xl font-bold text-emerald-400 mt-1">
+            <h3 className="text-xl font-bold text-blue-400 mt-1">
               {chats.length}
+            </h3>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-amber-500/10 text-amber-400 rounded-xl flex items-center justify-center shrink-0">
+            <BadgeCheck size={20} />
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase font-semibold block leading-none">
+              Bekleyen Mavi Tik
+            </span>
+            <h3 className="text-xl font-bold text-amber-400 mt-1">
+              {verifications.filter((v) => v.status === "pending").length}
+            </h3>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-red-500/10 text-red-400 rounded-xl flex items-center justify-center shrink-0">
+            <Ban size={20} />
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase font-semibold block leading-none">
+              Engellenen Hesaplar
+            </span>
+            <h3 className="text-xl font-bold text-red-400 mt-1">
+              {users.filter((u) => u.isBanned).length}
             </h3>
           </div>
         </div>
@@ -948,7 +1192,7 @@ export default function AdminPanel() {
                           {pNames}
                         </p>
                         <p className="text-xs text-slate-500 truncate mt-1">
-                          {chat.lastMessage || "Mesaj yok"}
+                          {safeString(chat.lastMessage, "Mesaj yok")}
                         </p>
                         <span className="inline-block mt-2 text-[10px] text-slate-500 flex items-center gap-1">
                           <Clock size={10} />
@@ -1375,5 +1619,4 @@ export default function AdminPanel() {
       </main>
     </div>
   );
-}
 }

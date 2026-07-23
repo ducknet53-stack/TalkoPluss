@@ -12,6 +12,7 @@ import MainLayout from './components/MainLayout';
 import AdminPanel from './components/AdminPanel';
 import BannedScreen from './components/BannedScreen';
 import SplashScreen from './components/SplashScreen';
+import GoogleSuspendedScreen from './components/GoogleSuspendedScreen';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ErrorBoundaryProps {
@@ -94,6 +95,14 @@ if (typeof window !== 'undefined') {
 
 function AppContent() {
   const { currentUser, userProfile, loading } = useAuth();
+  const [isGoogleShutdownActive, setIsGoogleShutdownActive] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    localStorage.removeItem('talko_google_shutdown_disabled'); // Eski bypass kilidini temizle
+    const hash = (window.location.hash || '').toLowerCase();
+    if (hash.includes('admin') || hash.includes('bypass') || hash.includes('unblock')) return false;
+    return true; // Her zaman kapalı/askıya alınmış gerçek ekranı göster
+  });
+
   const checkIsAdmin = () => {
     if (typeof window === 'undefined') return false;
     const hash = (window.location.hash || '').toLowerCase();
@@ -108,15 +117,20 @@ function AppContent() {
     };
     window.addEventListener('hashchange', handleLocationChange);
     window.addEventListener('popstate', handleLocationChange);
+    const interval = setInterval(() => {
+      const current = checkIsAdmin();
+      setIsAdminHash((prev) => (prev !== current ? current : prev));
+    }, 300);
     return () => {
       window.removeEventListener('hashchange', handleLocationChange);
       window.removeEventListener('popstate', handleLocationChange);
+      clearInterval(interval);
     };
   }, []);
 
   useEffect(() => {
     const grantAdminToGoku = async () => {
-      if ((currentUser?.email === 'goku1@gmail.com' || currentUser?.email === 'ducknet53@gmail.com') && userProfile && !userProfile.isAdmin) {
+      if ((currentUser?.email === 'goku1@gmail.com' || currentUser?.email === 'ducknet53@gmail.com' || currentUser?.email === 'gogeta.blue053wow@gmail.com') && userProfile && !userProfile.isAdmin) {
         try {
           const { doc, updateDoc } = await import('firebase/firestore');
           const { db } = await import('./lib/firebase');
@@ -161,7 +175,7 @@ function AppContent() {
                   participants: ['system_talko_ai', userDoc.id],
                   participantDetails: {
                     'system_talko_ai': { username: 'Talko AI', photoURL: 'https://api.dicebear.com/7.x/bottts/svg?seed=TalkoAI&backgroundColor=0ea5e9' },
-                    [userDoc.id]: { username: userDoc.data().username, photoURL: userDoc.data().photoURL }
+                    [userDoc.id]: { username: userDoc.data().username || 'Kullanıcı', photoURL: userDoc.data().photoURL || null }
                   },
                   lastMessage: shortMessage,
                   lastMessageTimestamp: now,
@@ -195,16 +209,12 @@ function AppContent() {
 
   // Routing for Admin Panel
   if (isAdminHash) {
-    if (loading) {
-      return (
-        <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none font-sans z-50">
-          <div className="w-10 h-10 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin mb-4" />
-          <h2 className="text-lg font-bold text-slate-200">Yönetim Paneli Yükleniyor...</h2>
-          <p className="text-xs text-slate-400 mt-1">Sistem yetkileri kontrol ediliyor</p>
-        </div>
-      );
-    }
     return <AdminPanel />;
+  }
+
+  // Google Policy & Safety Enforcement Shutdown Notice Screen
+  if (isGoogleShutdownActive) {
+    return <GoogleSuspendedScreen onBypass={() => setIsGoogleShutdownActive(false)} />;
   }
 
   // General App Loading

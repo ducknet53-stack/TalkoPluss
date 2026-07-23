@@ -166,7 +166,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       if (docSnap.exists()) {
         setLiveChat({ id: docSnap.id, ...docSnap.data() } as Chat);
       }
-    });
+    }, (err) => console.warn("Chat doc snapshot note:", err));
     return () => unsub();
   }, [chat?.id, currentUser]);
 
@@ -310,7 +310,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
       }
 
       setMessages(uniqueMessages);
-    });
+    }, (err) => console.warn("Messages snapshot note:", err));
 
     return () => unsubscribeMessages();
   }, [chat.id, currentUser]);
@@ -471,7 +471,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
             }
           }
         }
-      });
+      }, (err) => console.warn("Users snapshot note:", err));
     }
 
     if (liveChat.isGroup) {
@@ -494,7 +494,7 @@ export default function ChatArea({ chat, onBack }: ChatAreaProps) {
           setIsOtherUserTyping(false);
           setGroupTypersText('');
         }
-      });
+      }, (err) => console.warn("Group typing snapshot note:", err));
     } else {
       if (!isSystemChat && otherUserId && currentUser) {
         // Listen to other user's typing status

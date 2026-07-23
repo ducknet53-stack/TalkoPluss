@@ -67,7 +67,7 @@ export async function sendWelcomeMessageIfNeeded(userId: string, username: strin
         participants: [SYSTEM_USER_ID, userId],
         participantDetails: {
           [SYSTEM_USER_ID]: { username: 'Talko Updates', photoURL: TALKO_LOGO_DATA_URL },
-          [userId]: { username, photoURL: photoURL || null }
+          [userId]: { username: username || 'Kullanıcı', photoURL: photoURL || null }
         },
         lastMessage: `Merhaba ${username}, Talko'ya hoş geldin!`,
         lastMessageTimestamp: now,
@@ -103,7 +103,7 @@ export async function sendWelcomeMessageIfNeeded(userId: string, username: strin
         participants: [TALKO_AI_USER_ID, userId],
         participantDetails: {
           [TALKO_AI_USER_ID]: { username: 'Talko AI', photoURL: TALKO_AI_LOGO_DATA_URL },
-          [userId]: { username, photoURL: photoURL || null }
+          [userId]: { username: username || 'Kullanıcı', photoURL: photoURL || null }
         },
         lastMessage: `Merhaba! Ben Talko AI. Size nasıl yardımcı olabilirim?`,
         lastMessageTimestamp: aiNow,

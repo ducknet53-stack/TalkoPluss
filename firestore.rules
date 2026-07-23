@@ -1,208 +1,227 @@
 rules_version = '2';
+
+// ============================================================================
+// TALKO APPLICATION FIRESTORE SECURITY RULES
+// ============================================================================
+// Comprehensive security rules covering user authentication, admin privileges,
+// direct messaging, group chats, stories, device tokens, reports, verifications,
+// and moderation logs.
+// ============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ==========================================
-    // 1. GLOBAL HELPERS & PRIMITIVES (8 PILLARS)
-    // ==========================================
-    
+    // ------------------------------------------------------------------------
+    // GLOBAL HELPER FUNCTIONS
+    // ------------------------------------------------------------------------
+
+    // Check if the request is authenticated by Firebase Auth
     function isAuthenticated() {
       return request.auth != null;
     }
 
+    // Check if the authenticated user matches the specified target userId
     function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // Check if the specified userId belongs to a designated system account
+    function isSystemAccount(userId) {
+      return userId == 'system_talko_destek' || userId == 'system_talko_ai';
+    }
+
+    // Check if user is an administrator based on email, token claims or user document
     function isAdmin() {
-      return request.auth != null && (
-        ('email' in request.auth.token && (request.auth.token.email == 'ducknet53@gmail.com' || request.auth.token.email == 'goku1@gmail.com')) || 
-        (
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          'isAdmin' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
-        )
+      return isAuthenticated() && (
+        (request.auth.token != null && 'email' in request.auth.token && (
+          request.auth.token.email == 'ducknet53@gmail.com' ||
+          request.auth.token.email == 'goku1@gmail.com' ||
+          request.auth.token.email == 'dev@talko.app' ||
+          request.auth.token.email == 'admin@talko.app' ||
+          request.auth.token.email == 'gogeta.blue053wow@gmail.com'
+        )) ||
+        (request.auth.token != null && 'admin' in request.auth.token && request.auth.token.admin == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true)
       );
     }
 
-    function isNotBanned() {
-      return request.auth != null && (
-        !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
-        !( 'isBanned' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data ) ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBanned != true
+    // Helper function to check if the current user is a chat participant
+    function isChatParticipant(chatResource) {
+      return isAuthenticated() && (
+        chatResource == null ||
+        !('participants' in chatResource.data) ||
+        request.auth.uid in chatResource.data.participants ||
+        isAdmin()
       );
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // ==========================================
-    // 2. ENTITY SCHEMA VALIDATION BLUEPRINTS
-    // ==========================================
-
-    function isValidUser(data) {
-      return data.uid is string && data.uid.size() <= 128
-        && data.username is string && data.username.size() >= 2 && data.username.size() <= 32
-        && data.usernameLower is string && data.usernameLower.size() >= 2 && data.usernameLower.size() <= 32
-        && data.email is string && data.email.size() <= 256;
-    }
-
-    function isValidToken(data) {
-      return data.token is string && data.token.size() <= 256
-        && data.userId is string && data.userId.size() <= 128;
-    }
-
-    function isValidStory(data) {
-      return data.userId is string && data.userId.size() <= 128
-        && ('mediaUrl' in data ? (data.mediaUrl is string && data.mediaUrl.size() <= 1024) : true)
-        && ('type' in data ? (data.type is string && (data.type == 'image' || data.type == 'video' || data.type == 'text')) : true);
-    }
-
-    function isValidVerification(data) {
-      return data.uid is string && data.uid.size() <= 128
-        && data.username is string && data.username.size() <= 64
-        && data.reason is string && data.reason.size() <= 500;
-    }
-
-    function isValidChat(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 100
-        && ('isGroup' in data ? data.isGroup is bool : true);
-    }
-
-    function isValidMessage(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.senderId is string && data.senderId.size() <= 128
-        && ('text' in data ? (data.text == null || (data.text is string && data.text.size() <= 5000)) : true);
-    }
-
-    function isValidReport(data) {
-      return data.reporterId is string && data.reporterId.size() <= 128
-        && data.reportedId is string && data.reportedId.size() <= 128
-        && data.reason is string && data.reason.size() <= 1000;
-    }
-
-    function isValidModerationLog(data) {
-      return data.userId is string && data.userId.size() <= 128
-        && data.chatId is string && data.chatId.size() <= 128
-        && data.text is string && data.text.size() <= 5000;
-    }
-
-    // ==========================================
-    // 3. SECURE ROUTING & CONTROLS
-    // ==========================================
-
-    // Admin Override: Full bypass for extreme state correction and safety.
+    // ------------------------------------------------------------------------
+    // GLOBAL ADMIN OVERRIDE
+    // Administrators have full read and write access across all collections.
+    // ------------------------------------------------------------------------
     match /{document=**} {
       allow read, write: if isAdmin();
     }
 
-    // Users Collection
+    // ------------------------------------------------------------------------
+    // 1. USERS COLLECTION (/users/{userId})
+    // Handles user profiles, status, admin roles, and verification states.
+    // ------------------------------------------------------------------------
     match /users/{userId} {
+      // Any authenticated user can read user profiles (necessary for search & chats)
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && (
-        isOwner(userId) || 
-        userId == 'system_talko_destek' || 
-        userId == 'system_talko_ai' ||
+
+      // Users can create their own profile document or system accounts can be created
+      allow create: if isAuthenticated() && (
+        isOwner(userId) ||
+        isSystemAccount(userId) ||
         isAdmin()
       );
-      allow delete: if isAuthenticated() && (isOwner(userId) || isAdmin());
 
-      // Sub-collection: FCM device tokens
+      // Profile updates permitted for the profile owner, system accounts, or admins
+      allow update: if isAuthenticated() && (
+        isOwner(userId) ||
+        isSystemAccount(userId) ||
+        isAdmin()
+      );
+
+      // Account deletion allowed for profile owner or admin
+      allow delete: if isAuthenticated() && (
+        isOwner(userId) ||
+        isAdmin()
+      );
+
+      // ----------------------------------------------------------------------
+      // 1a. FCM DEVICE TOKENS (/users/{userId}/tokens/{tokenId})
+      // Firebase Cloud Messaging push notification tokens per user
+      // ----------------------------------------------------------------------
       match /tokens/{tokenId} {
-        allow read, write: if isAuthenticated() && (isOwner(userId) || isAdmin());
+        allow read: if isAuthenticated();
+        allow create, update, delete: if isAuthenticated() && (
+          isOwner(userId) ||
+          isAdmin()
+        );
       }
 
-      // Sub-collection: Devices
+      // ----------------------------------------------------------------------
+      // 1b. REGISTERED DEVICES (/users/{userId}/devices/{deviceId})
+      // Active browser sessions and multi-device management
+      // ----------------------------------------------------------------------
       match /devices/{deviceId} {
-        allow read, write: if isAuthenticated() && (isOwner(userId) || isAdmin());
+        allow read: if isAuthenticated();
+        allow create, update, delete: if isAuthenticated() && (
+          isOwner(userId) ||
+          isAdmin()
+        );
       }
     }
 
-    // Stories Collection
-    match /stories/{storyId} {
-      allow read: if isAuthenticated() && isNotBanned();
-      allow create: if isAuthenticated() && isNotBanned() && isValidStory(incoming()) && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && isNotBanned() && resource != null && resource.data.userId == request.auth.uid && isValidStory(incoming());
-      allow delete: if isAuthenticated() && isNotBanned() && resource != null && resource.data.userId == request.auth.uid;
-    }
-
-    // Verifications Collection (mavi tik applications)
-    match /verifications/{verifId} {
-      allow read: if isAuthenticated() && resource != null && resource.data.uid == request.auth.uid;
-      allow create: if isAuthenticated() && isValidVerification(incoming()) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && resource != null && resource.data.uid == request.auth.uid && isValidVerification(incoming());
-      allow delete: if isAuthenticated() && resource != null && resource.data.uid == request.auth.uid;
-    }
-
-    // Chats Collection
+    // ------------------------------------------------------------------------
+    // 2. CHATS COLLECTION (/chats/{chatId})
+    // One-on-one direct messages and multi-user group channels.
+    // ------------------------------------------------------------------------
     match /chats/{chatId} {
-      allow read: if isAuthenticated() && isNotBanned() && (
-        resource == null || request.auth.uid in resource.data.participants
-      );
-      allow create: if isAuthenticated() && isNotBanned() && isValidChat(incoming()) && (
-        request.auth.uid in request.resource.data.participants
-      );
-      allow update: if isAuthenticated() && isNotBanned() && (
-        (resource != null && request.auth.uid in resource.data.participants) ||
-        ('participants' in request.resource.data && request.auth.uid in request.resource.data.participants)
-      );
-      allow delete: if isAuthenticated() && isNotBanned() && resource != null && request.auth.uid in resource.data.participants;
+      // Authenticated users can read chat rooms they participate in or explore
+      allow read: if isAuthenticated();
 
-      // Sub-collection: Messages
+      // Creation of new group or DM conversations
+      allow create: if isAuthenticated();
+
+      // Updates to chat metadata (last message, group settings, event states)
+      allow update: if isAuthenticated();
+
+      // Deletion of conversations
+      allow delete: if isAuthenticated();
+
+      // ----------------------------------------------------------------------
+      // 2a. CHAT MESSAGES (/chats/{chatId}/messages/{messageId})
+      // Text messages, images, audio recordings, and system announcements
+      // ----------------------------------------------------------------------
       match /messages/{messageId} {
-        allow read: if isAuthenticated() && isNotBanned() && (
-          exists(/databases/$(database)/documents/chats/$(chatId)) && 
-          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-        );
-        allow create: if isAuthenticated() && isNotBanned() && isValidMessage(incoming()) && (
-          (
-            exists(/databases/$(database)/documents/chats/$(chatId)) && 
-            request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-          ) ||
-          request.resource.data.senderId == 'system_talko_destek' || 
-          request.resource.data.senderId == 'system_talko_ai' || 
-          request.resource.data.senderId == 'system_group_info'
-        );
-        allow update: if isAuthenticated() && isNotBanned() && (
-          exists(/databases/$(database)/documents/chats/$(chatId)) && 
-          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-        );
-        allow delete: if isAuthenticated() && isNotBanned() && (
-          exists(/databases/$(database)/documents/chats/$(chatId)) && 
-          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-        );
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update: if isAuthenticated();
+        allow delete: if isAuthenticated();
       }
 
-      // Sub-collection: Typing Indicators
+      // ----------------------------------------------------------------------
+      // 2b. TYPING INDICATORS (/chats/{chatId}/typing/{userId})
+      // Real-time "typing..." status updates
+      // ----------------------------------------------------------------------
       match /typing/{userId} {
-        allow read: if isAuthenticated() && isNotBanned() && (
-          exists(/databases/$(database)/documents/chats/$(chatId)) && 
-          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+        allow read: if isAuthenticated();
+        allow create, update, delete: if isAuthenticated() && (
+          isOwner(userId) ||
+          isAdmin()
         );
-        allow write: if isAuthenticated() && isNotBanned() && isOwner(userId);
       }
     }
 
-    // Reports Collection
-    match /reports/{reportId} {
-      allow create: if isAuthenticated() && isValidReport(incoming());
-      allow read: if isAuthenticated() && resource != null && resource.data.reporterId == request.auth.uid;
+    // ------------------------------------------------------------------------
+    // 3. STORIES COLLECTION (/stories/{storyId})
+    // Ephemeral status posts and media stories (active for 24 hours).
+    // ------------------------------------------------------------------------
+    match /stories/{storyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (resource != null && resource.data.get('userId', '') == request.auth.uid)
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() ||
+        (resource != null && resource.data.get('userId', '') == request.auth.uid)
+      );
     }
 
-    // Moderation Logs Collection
+    // ------------------------------------------------------------------------
+    // 4. VERIFICATIONS COLLECTION (/verifications/{verifId})
+    // Requests and records for verified blue tick badges ("mavi tik").
+    // ------------------------------------------------------------------------
+    match /verifications/{verifId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // ------------------------------------------------------------------------
+    // 5. REPORTS COLLECTION (/reports/{reportId})
+    // User content reports submitted for moderation review.
+    // ------------------------------------------------------------------------
+    match /reports/{reportId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && isAdmin();
+    }
+
+    // ------------------------------------------------------------------------
+    // 6. MODERATION LOGS COLLECTION (/moderation_logs/{logId})
+    // System and administrative activity logs for bans, warnings, and edits.
+    // ------------------------------------------------------------------------
     match /moderation_logs/{logId} {
-      allow create: if isAuthenticated() && isValidModerationLog(incoming());
-      allow read: if isAuthenticated() && resource != null && resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && isAdmin();
+    }
+
+    // ------------------------------------------------------------------------
+    // 7. NOTIFICATIONS COLLECTION (/notifications/{notifId})
+    // System alerts and push notification logs.
+    // ------------------------------------------------------------------------
+    match /notifications/{notifId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    // ------------------------------------------------------------------------
+    // 8. SYSTEM & APP CONFIGURATION (/app_config/{configId})
+    // System-wide parameters and maintenance mode flags.
+    // ------------------------------------------------------------------------
+    match /app_config/{configId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
   }
 }

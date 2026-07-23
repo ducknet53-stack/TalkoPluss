@@ -69,7 +69,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedChats = snapshot.docs.map(doc => doc.data() as Chat);
+      const fetchedChats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Chat);
       
       // Sort chats: System chat always first, then by updatedAt desc
       fetchedChats.sort((a, b) => {
@@ -176,7 +176,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
     const usersRef = collection(db, 'users');
     const unsubscribe = onSnapshot(usersRef, (snapshot) => {
       const fetchedUsers = snapshot.docs
-        .map(doc => doc.data() as User)
+        .map(doc => ({ uid: doc.id, ...doc.data() }) as User)
         .filter(u => u.uid !== currentUser?.uid && u.uid !== SYSTEM_USER_ID);
 
       // Sort users: Online first, then alphabetically
@@ -185,7 +185,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
         const bOnline = b.isOnline || (b as any).online || false;
         if (aOnline && !bOnline) return -1;
         if (!aOnline && bOnline) return 1;
-        return a.username.localeCompare(b.username, 'tr');
+        return (a.username || '').localeCompare(b.username || '', 'tr');
       });
 
       setAllUsers(fetchedUsers);
@@ -230,8 +230,8 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
       id: chatId,
       participants: [currentUser.uid, targetUser.uid],
       participantDetails: {
-        [currentUser.uid]: { username: userProfile.username, photoURL: userProfile.photoURL || null },
-        [targetUser.uid]: { username: targetUser.username, photoURL: targetUser.photoURL || null }
+        [currentUser.uid]: { username: userProfile.username || 'Kullanıcı', photoURL: userProfile.photoURL || null },
+        [targetUser.uid]: { username: targetUser.username || 'Kullanıcı', photoURL: targetUser.photoURL || null }
       },
       lastMessage: null,
       lastMessageTimestamp: null,
@@ -320,7 +320,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
       
       const isSystem = otherUserId === SYSTEM_USER_ID;
       const isAi = otherUserId === TALKO_AI_USER_ID;
-      const userObj = otherUserId === currentUser?.uid ? userProfile : allUsers.find(u => u.uid === otherUserId);
+      const userObj = otherUserId === currentUser?.uid ? userProfile : allUsers?.find(u => u.uid === otherUserId);
       isVerified = isSystem || isAi || (userObj?.isVerified || false);
       otherUser = isSystem 
         ? { username: 'Talko Updates', photoURL: TALKO_LOGO_DATA_URL }
@@ -358,7 +358,9 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
     }
 
     return (
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         key={chat.id}
         onClick={() => onChatSelect(chat)}
         className={cn(
@@ -400,7 +402,7 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
             )}
           </div>
         </div>
-      </button>
+      </div>
     );
   };
 
@@ -410,7 +412,9 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
     const isVerified = isSystem || isAi || (user.isVerified || false);
 
     return (
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         key={user.uid}
         onClick={() => startChat(user)}
         className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-xl transition-all duration-200 text-left min-w-0"
@@ -442,14 +446,32 @@ export default function Sidebar({ onChatSelect, activeChatId, onOpenProfile }: S
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 truncate w-full">{user.about || 'Merhaba!'}</p>
         </div>
-      </button>
+      </div>
     );
   };
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 transition-colors">
       {/* Header */}
-      <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between min-w-0">
+      
+      {currentUser?.email === 'gogeta.blue053wow@gmail.com' && !userProfile?.isAdmin && (
+        <button
+          onClick={async () => {
+            try {
+              const { doc, updateDoc } = await import('firebase/firestore');
+              const { db } = await import('../lib/firebase');
+              await updateDoc(doc(db, 'users', currentUser.uid), { isAdmin: true });
+              alert('Başarıyla admin oldunuz! Lütfen sayfayı yenileyin.');
+            } catch (err: any) {
+              alert('Admin olma hatası: ' + err.message);
+            }
+          }}
+          className="w-full bg-red-500 text-white p-2 font-bold text-xs"
+        >
+          ZORLA ADMİN OL (SADECE GOGETA)
+        </button>
+      )}
+<div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between min-w-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <button onClick={() => setProfileModalUserId(currentUser?.uid || null)} className="relative group focus:outline-none flex-shrink-0">
             <div className="relative w-10 h-10">

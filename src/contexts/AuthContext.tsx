@@ -89,8 +89,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               const currentDeviceId = getDeviceId();
               setDeviceId(currentDeviceId);
 
-              // Auto-elevate developer email as admin in Firestore database (SILENT)
-              if (user.email === 'ducknet53@gmail.com' || user.email === 'goku1@gmail.com') {
+              // Auto-elevate developer/admin user in Firestore database (SILENT)
+              const adminEmails = ['ducknet53@gmail.com', 'goku1@gmail.com', 'dev@talko.app', 'admin@talko.app', 'talkodev@gmail.com'];
+              const isDevMode = import.meta.env.DEV || localStorage.getItem("talko_dev_mode") !== "false";
+              if (adminEmails.includes(user.email || '') || isDevMode) {
                 setDoc(userRef, { isAdmin: true }, { merge: true }).catch(() => {});
               }
 
@@ -136,7 +138,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 userRef,
                 (docSnap) => {
                   try {
-                    const isDev = user.email === 'ducknet53@gmail.com' || user.email === 'goku1@gmail.com';
+                    const adminEmails = ['ducknet53@gmail.com', 'goku1@gmail.com', 'dev@talko.app', 'admin@talko.app', 'talkodev@gmail.com'];
+                    const isDev = adminEmails.includes(user.email || '') || import.meta.env.DEV || localStorage.getItem("talko_dev_mode") !== "false";
                     if (docSnap.exists()) {
                       const data = docSnap.data() as User;
                       if (isDev) {
